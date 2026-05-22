@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PyTrace — Render History & Gallery</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Space+Grotesk:wght@400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-gradient: linear-gradient(135deg, #0f0c1b 0%, #15102a 50%, #06020f 100%);
+            --glass-bg: rgba(255, 255, 255, 0.03);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --glass-border-hover: rgba(147, 51, 234, 0.4);
+            --glow-color: rgba(147, 51, 234, 0.2);
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --primary: #a855f7;
+            --primary-hover: #c084fc;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --info: #06b6d4;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-gradient);
+            background-attachment: fixed;
+            color: var(--text-main);
+            min-height: 100vh;
+            overflow-x: hidden;
+            padding: 2rem 1rem;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 3rem;
+            position: relative;
+        }
+
+        header::after {
+            content: '';
+            position: absolute;
+            top: -50px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 300px;
+            height: 300px;
+            background: radial-gradient(circle, rgba(168, 85, 247, 0.15) 0%, transparent 70%);
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        h1 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 3rem;
+            font-weight: 800;
+            letter-spacing: -0.05em;
+            background: linear-gradient(to right, #ffffff, #c084fc, #818cf8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        header p {
+            font-size: 1.1rem;
+            color: var(--text-muted);
+            font-weight: 300;
+        }
+
+        /* Stats Section */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 3rem;
+        }
+
+        .stat-card {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: 16px;
+            padding: 1.5rem;
+            text-align: center;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: linear-gradient(90deg, var(--primary), #818cf8);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--glass-border-hover);
+            box-shadow: 0 10px 25px -5px var(--glow-color);
+        }
+
+        .stat-card:hover::before {
+            opacity: 1;
+        }
+
+        .stat-val {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 2.25rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+            background: linear-gradient(to right, #ffffff, #e9d5ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .stat-lbl {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        /* Gallery Section */
+        .gallery-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .gallery-title {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .gallery-title::before {
+            content: '';
+            display: inline-block;
+            width: 8px;
+            height: 24px;
+            background: var(--primary);
+            border-radius: 4px;
+        }
+
+        .gallery-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 2rem;
+        }
+
+        .render-card {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: 20px;
+            overflow: hidden;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            position: relative;
+        }
+
+        .render-card:hover {
+            transform: translateY(-8px) scale(1.02);
+            border-color: var(--glass-border-hover);
+            box-shadow: 0 20px 40px -10px var(--glow-color);
+        }
+
+        .img-container {
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            overflow: hidden;
+            position: relative;
+            background: #000;
+        }
+
+        .img-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .render-card:hover .img-container img {
+            transform: scale(1.08);
+        }
+
+        .card-badge {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+
+        .badge-high {
+            background: rgba(16, 185, 129, 0.2);
+            border: 1px solid var(--success);
+            color: #34d399;
+        }
+
+        .badge-med {
+            background: rgba(245, 158, 11, 0.2);
+            border: 1px solid var(--warning);
+            color: #fbbf24;
+        }
+
+        .badge-low {
+            background: rgba(6, 182, 212, 0.2);
+            border: 1px solid var(--info);
+            color: #22d3ee;
+        }
+
+        .card-body {
+            padding: 1.25rem;
+        }
+
+        .card-time {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+        }
+
+        .card-meta-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            margin-top: 0.5rem;
+        }
+
+        .meta-pill {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 4px 8px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            color: #d1d5db;
+        }
+
+        .meta-pill svg {
+            width: 14px;
+            height: 14px;
+            opacity: 0.7;
+        }
+
+        /* Empty State */
+        .empty-state {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 5rem 2rem;
+            background: var(--glass-bg);
+            border: 1px dashed var(--glass-border);
+            border-radius: 20px;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        .empty-state svg {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 1.5rem;
+            opacity: 0.3;
+            color: var(--primary);
+        }
+
+        .empty-state h3 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.5rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .empty-state p {
+            color: var(--text-muted);
+            max-width: 500px;
+            margin: 0 auto 1.5rem;
+            font-weight: 300;
+        }
+
+        .code-box {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid var(--glass-border);
+            padding: 0.75rem 1.2rem;
+            border-radius: 10px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9rem;
+            color: #c084fc;
+            display: inline-block;
+        }
+
+        /* Lightbox Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(7, 5, 15, 0.95);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            padding: 1.5rem;
+        }
+
+        .modal.active {
+            display: flex;
+            opacity: 1;
+        }
+
+        .modal-content {
+            background: rgba(25, 20, 45, 0.4);
+            border: 1px solid var(--glass-border-hover);
+            max-width: 900px;
+            width: 100%;
+            border-radius: 24px;
+            overflow: hidden;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            position: relative;
+            animation: modalSlide 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        @keyframes modalSlide {
+            from { transform: scale(0.9) translateY(20px); opacity: 0; }
+            to { transform: scale(1) translateY(0); opacity: 1; }
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #fff;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            transition: all 0.2s ease;
+            z-index: 10;
+        }
+
+        .modal-close:hover {
+            background: rgba(255, 255, 255, 0.15);
+            transform: rotate(90deg);
+        }
+
+        .modal-body {
+            display: grid;
+            grid-template-columns: 1.2fr 1fr;
+            min-height: 400px;
+        }
+
+        @media (max-width: 768px) {
+            .modal-body {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .modal-img-wrap {
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .modal-img-wrap img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .modal-info {
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            background: rgba(15, 10, 30, 0.6);
+        }
+
+        .modal-title {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .modal-meta-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1.5rem 0;
+        }
+
+        .modal-meta-table tr {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .modal-meta-table td {
+            padding: 0.75rem 0;
+            font-size: 0.95rem;
+        }
+
+        .modal-meta-table td:first-child {
+            color: var(--text-muted);
+            font-weight: 300;
+            width: 45%;
+        }
+
+        .modal-meta-table td:last-child {
+            color: #fff;
+            font-weight: 600;
+            text-align: right;
+        }
+
+        .modal-btn {
+            background: linear-gradient(90deg, var(--primary), #818cf8);
+            border: none;
+            color: #fff;
+            padding: 0.8rem 1.5rem;
+            border-radius: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .modal-btn:hover {
+            box-shadow: 0 0 20px rgba(168, 85, 247, 0.6);
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        
+        <!-- Header -->
+        <header>
+            <h1>PyTrace</h1>
+            <p>Raytracer Render History & Performance Dashboard</p>
+        </header>
+
+        <!-- Stats Overview -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-val" id="stat-total">0</div>
+                <div class="stat-lbl">Total Renders</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-val" id="stat-avg-spp">0</div>
+                <div class="stat-lbl">Avg Samples</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-val" id="stat-max-res">N/A</div>
+                <div class="stat-lbl">Top Resolution</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-val" id="stat-recent-level">-</div>
+                <div class="stat-lbl">Last Render Preset</div>
+            </div>
+        </div>
+
+        <!-- Render Gallery -->
+        <div class="gallery-header">
+            <div class="gallery-title">Render History</div>
+        </div>
+
+        <div class="gallery-grid" id="gallery-container">
+            <!-- Dynamic items go here -->
+        </div>
+
+    </div>
+
+    <!-- Lightbox Modal -->
+    <div class="modal" id="render-modal">
+        <div class="modal-content">
+            <button class="modal-close" onclick="closeModal()">&times;</button>
+            <div class="modal-body">
+                <div class="modal-img-wrap">
+                    <img id="modal-img" src="" alt="Render Preview">
+                </div>
+                <div class="modal-info">
+                    <div>
+                        <div class="modal-title" id="modal-title">Render Specification</div>
+                        <p style="color: var(--text-muted); font-size: 0.9rem;" id="modal-time"></p>
+                        
+                        <table class="modal-meta-table">
+                            <tr>
+                                <td>Render Quality Preset</td>
+                                <td id="modal-level">-</td>
+                            </tr>
+                            <tr>
+                                <td>Resolution</td>
+                                <td id="modal-resolution">-</td>
+                            </tr>
+                            <tr>
+                                <td>Samples Per Pixel (AA)</td>
+                                <td id="modal-samples">-</td>
+                            </tr>
+                            <tr>
+                                <td>Max Ray Bounces</td>
+                                <td id="modal-bounces">-</td>
+                            </tr>
+                        </table>
+                    </div>
+                    <a id="modal-download" href="" download class="modal-btn">Download Full Render</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Load the history database generated by Python -->
+    <script src="output/history/history.js"></script>
+
+    <script>
+        // Fallback in case history.js hasn't been generated yet or is empty
+        const historyData = (typeof PYTRACE_HISTORY !== 'undefined') ? PYTRACE_HISTORY : [];
+
+        function renderGallery() {
+            const container = document.getElementById('gallery-container');
+            container.innerHTML = '';
+
+            if (historyData.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                            <polyline points="21 15 16 10 5 21"></polyline>
+                        </svg>
+                        <h3>No renders found yet</h3>
+                        <p>Run the raytracer to compile your first render! It will be automatically saved to history.</p>
+                        <div class="code-box">python src/main.py --level low</div>
+                    </div>
+                `;
+                return;
+            }
+
+            // Update stats
+            document.getElementById('stat-total').textContent = historyData.length;
+            
+            const totalSpp = historyData.reduce((acc, curr) => acc + (curr.samples || 0), 0);
+            document.getElementById('stat-avg-spp').textContent = Math.round(totalSpp / historyData.length);
+            
+            const maxRes = historyData.reduce((max, curr) => {
+                const area = (curr.width || 0) * (curr.height || 0);
+                const maxArea = max.width * max.height;
+                return area > maxArea ? curr : max;
+            }, { width: 0, height: 0 });
+            document.getElementById('stat-max-res').textContent = maxRes.width ? `${maxRes.width}x${maxRes.height}` : 'N/A';
+            
+            document.getElementById('stat-recent-level').textContent = historyData[0].level.toUpperCase();
+
+            // Populate Grid
+            historyData.forEach((item, index) => {
+                const card = document.createElement('div');
+                card.className = 'render-card';
+                card.onclick = () => openModal(index);
+
+                card.innerHTML = `
+                    <div class="img-container">
+                        <img src="${item.filename}" alt="Render ${item.timestamp}" onerror="this.src='output/render.png'">
+                        <span class="card-badge badge-${item.level}">${item.level}</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="card-time">${item.timestamp}</div>
+                        <div class="card-meta-row">
+                            <span class="meta-pill">
+                                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"></path></svg>
+                                ${item.width} x ${item.height}
+                            </span>
+                            <span class="meta-pill">
+                                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                                ${item.samples} spp
+                            </span>
+                            <span class="meta-pill">
+                                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 8H18"></path></svg>
+                                ${item.bounces} bounces
+                            </span>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function openModal(index) {
+            const item = historyData[index];
+            document.getElementById('modal-img').src = item.filename;
+            document.getElementById('modal-time').textContent = `Rendered on ${item.timestamp}`;
+            document.getElementById('modal-level').textContent = item.level.toUpperCase();
+            document.getElementById('modal-resolution').textContent = `${item.width} x ${item.height} pixels`;
+            document.getElementById('modal-samples').textContent = `${item.samples} samples / pixel`;
+            document.getElementById('modal-bounces').textContent = `${item.bounces} bounces max`;
+            document.getElementById('modal-download').href = item.filename;
+            
+            const modal = document.getElementById('render-modal');
+            modal.classList.add('active');
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('render-modal');
+            modal.classList.remove('active');
+        }
+
+        // Close on clicking overlay
+        document.getElementById('render-modal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeModal();
+            }
+        });
+
+        // Initialize gallery
+        renderGallery();
+    </script>
+</body>
+</html>
