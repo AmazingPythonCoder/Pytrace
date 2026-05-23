@@ -39,6 +39,14 @@ def main() -> None:
     assert camera.pitch <= 85.0
     camera.look(-1000.0, -2000.0)
     assert camera.pitch >= -85.0
+    old_distance = camera.distance
+    camera.zoom(1.0)
+    assert camera.distance < old_distance
+    camera.zoom(-1.0)
+    assert np.isclose(camera.distance, old_distance)
+    old_target = camera.target.copy()
+    camera.pan_pixels(40.0, -20.0, viewport_height=800)
+    assert not np.allclose(camera.target, old_target)
 
     scene = Scene.default()
     _apply_quality_preset(scene, "low")
@@ -66,8 +74,18 @@ def main() -> None:
     assert transforms.mode == "move"
     assert transforms.handle_command("x", scene, (0, 0))
     assert transforms.axis == "X"
+    before = scene.selected.position.copy()
+    assert transforms.drag((20.0, 0.0), camera, viewport_height=800)
+    assert scene.selected.position[0] > before[0]
     assert transforms.handle_command("escape", scene, (0, 0))
     assert transforms.mode is None
+    assert np.allclose(scene.selected.position, before)
+
+    assert transforms.handle_command("s", scene, (0, 0))
+    before_radius = scene.selected.radius
+    assert transforms.drag((40.0, 0.0), camera, viewport_height=800)
+    assert scene.selected.radius > before_radius
+    transforms.confirm()
 
     print("Editor navigation OK: viewport, quality cycling, add entries, and transform state verified")
 

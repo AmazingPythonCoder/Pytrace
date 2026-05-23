@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 if os.getenv("XDG_SESSION_TYPE") == "wayland" and not os.getenv("PYOPENGL_PLATFORM"):
     os.environ["PYOPENGL_PLATFORM"] = "x11"
@@ -54,6 +54,12 @@ class EditorState:
     viewport_drag: str | None = None
     viewport_hovered: bool = False
     gizmo_operation: object | None = None
+    fly_velocity: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=np.float64))
+    gizmo_local: bool = False
+    snap_enabled: bool = False
+    snap_translate: float = 0.25
+    snap_rotate: float = 15.0
+    snap_scale: float = 0.10
 
     def __post_init__(self) -> None:
         self.quality = _quality_for_scene(self.scene)
@@ -277,8 +283,10 @@ def _draw_imguizmo(state: EditorState, rect_min: ImVec2, width: int, height: int
         _GIZMO.Matrix16(view),
         _GIZMO.Matrix16(projection),
         state.gizmo_operation or _GIZMO.OPERATION.translate,
-        _GIZMO.MODE.world,
+        _GIZMO.MODE.local if state.gizmo_local else _GIZMO.MODE.world,
         matrix,
+        None,
+        _gizmo_snap(state),
     )
     if _GIZMO.is_using():
         components = _GIZMO.decompose_matrix_to_components(matrix)
@@ -316,6 +324,26 @@ def _set_gizmo_operation(state: EditorState, operation: str) -> None:
         state.gizmo_operation = _GIZMO.OPERATION.translate
 
 
+def _gizmo_snap(state: EditorState) -> object | None:
+    if _GIZMO is None or not state.snap_enabled:
+        return None
+    operation = state.gizmo_operation or _GIZMO.OPERATION.translate
+    if operation == _GIZMO.OPERATION.rotate:
+        return _GIZMO.Matrix3([state.snap_rotate, state.snap_rotate, state.snap_rotate])
+    if operation == _GIZMO.OPERATION.scale:
+        return _GIZMO.Matrix3([state.snap_scale, state.snap_scale, state.snap_scale])
+    return _GIZMO.Matrix3([state.snap_translate, state.snap_translate, state.snap_translate])
+
+
+def _input_speed_scale(io: object) -> float:
+    scale = 1.0
+    if getattr(io, "key_shift", False):
+        scale *= 3.0
+    if getattr(io, "key_ctrl", False):
+        scale *= 0.2
+    return scale
+
+
 def _rotation_matrix(euler_degrees: np.ndarray) -> np.ndarray:
     rx, ry, rz = np.radians(np.asarray(euler_degrees, dtype=np.float64))
     cx, sx = np.cos(rx), np.sin(rx)
@@ -343,7 +371,7 @@ def _handle_viewport_input(state: EditorState, rect_min: ImVec2, width: int, hei
 
     if state.transforms.mode is not None:
         if imgui.is_mouse_down(imgui.MouseButton_.left):
-            state.transforms.drag(mouse, state.orbit)
+            state.transforms.drag(mouse, state.orbit, height, _input_speed_scale(io))
         if imgui.is_mouse_released(imgui.MouseButton_.left):
             state.transforms.confirm()
         if imgui.is_mouse_clicked(imgui.MouseButton_.right):
@@ -366,21 +394,22 @@ def _handle_viewport_input(state: EditorState, rect_min: ImVec2, width: int, hei
     if state.viewport_drag == "orbit" and imgui.is_mouse_down(imgui.MouseButton_.middle):
         delta = io.mouse_delta
         if io.key_shift:
-            state.orbit.pan(float(delta.x), float(delta.y))
+            state.orbit.pan_pixels(float(delta.x), float(delta.y), height)
         else:
             state.orbit.orbit(float(delta.x), float(delta.y))
     elif state.viewport_drag == "pan" and imgui.is_mouse_down(imgui.MouseButton_.middle):
         delta = io.mouse_delta
-        state.orbit.pan(float(delta.x), float(delta.y))
+        state.orbit.pan_pixels(float(delta.x), float(delta.y), height)
     elif state.viewport_drag == "look" and imgui.is_mouse_down(imgui.MouseButton_.right):
         delta = io.mouse_delta
         state.orbit.look(float(delta.x), float(delta.y))
-        _handle_viewport_keyboard(state.orbit, float(io.delta_time), io, True)
+        _handle_viewport_keyboard(state, float(io.delta_time), io, True)
 
     if state.viewport_drag in {"orbit", "pan"} and not imgui.is_mouse_down(imgui.MouseButton_.middle):
         state.viewport_drag = None
     if state.viewport_drag == "look" and not imgui.is_mouse_down(imgui.MouseButton_.right):
         state.viewport_drag = None
+        state.fly_velocity *= 0.0
 
 
 def _handle_shortcuts(state: EditorState) -> None:
@@ -465,26 +494,25 @@ def _draw_properties(state: EditorState) -> None:
     imgui.text_colored((0.38, 0.72, 1.0, 1.0), display_name(selected))
     imgui.separator()
     if isinstance(selected, SceneObject):
-        _draw_object_properties(selected)
+        _draw_object_properties(state, selected)
     elif isinstance(selected, Light):
-        _draw_light_properties(selected)
+        _draw_light_properties(state, selected)
     elif isinstance(selected, Camera):
-        _draw_camera_properties(state.scene)
+        _draw_camera_properties(state)
 
 
-def _draw_object_properties(obj: SceneObject) -> None:
+def _draw_object_properties(state: EditorState, obj: SceneObject) -> None:
     _separator("Transform")
+    _draw_transform_tools(state, obj)
     changed, obj.name = imgui.input_text("Name", obj.name)
     changed, obj.visible = imgui.checkbox("Visible", obj.visible)
-    _drag_vec3("Location", obj.position, 0.05)
-    _drag_vec3("Rotation", obj.rotation, 0.25)
-    _drag_vec3("Scale", obj.scale, 0.02, min_value=0.02)
+    _drag_vec3("Location", obj.position, 0.01, default=np.zeros(3, dtype=np.float64))
+    _drag_vec3("Rotation", obj.rotation, 0.10, default=np.zeros(3, dtype=np.float64))
+    _drag_vec3("Scale", obj.scale, 0.01, min_value=0.02, default=np.ones(3, dtype=np.float64))
     if isinstance(obj, Sphere):
-        changed, value = imgui.drag_float("Radius", float(obj.radius), 0.02, 0.02, 100.0)
-        if changed:
-            obj.radius = max(0.02, value)
+        obj.radius = _drag_float("Radius", obj.radius, 0.005, 0.02, 100.0, default=0.5)
     if isinstance(obj, Plane):
-        _drag_vec3("Normal", obj.normal, 0.02, normalize=True)
+        _drag_vec3("Normal", obj.normal, 0.01, normalize=True, default=np.array([0.0, 1.0, 0.0], dtype=np.float64))
     if isinstance(obj, Mesh):
         imgui.text_disabled(f"Mesh: {obj.vertices.shape[0]} vertices, {obj.triangles.shape[0]} triangles")
         if obj.source_path:
@@ -500,35 +528,32 @@ def _draw_object_properties(obj: SceneObject) -> None:
     _draw_material(obj.material)
 
 
-def _draw_light_properties(light: Light) -> None:
+def _draw_light_properties(state: EditorState, light: Light) -> None:
     _separator("Light")
+    _draw_transform_tools(state, light)
     changed, light.name = imgui.input_text("Name", light.name)
-    _drag_vec3("Position", light.position, 0.05)
-    _drag_vec3("Color", light.color, 0.02, min_value=0.0)
-    changed, value = imgui.drag_float("Intensity", float(light.intensity), 1.0, 0.0, 100000.0)
-    if changed:
-        light.intensity = max(0.0, value)
+    _drag_vec3("Position", light.position, 0.01, default=np.zeros(3, dtype=np.float64))
+    _drag_vec3("Color", light.color, 0.01, min_value=0.0, default=np.ones(3, dtype=np.float64))
+    light.intensity = _drag_float("Intensity", light.intensity, 0.25, 0.0, 100000.0)
     if isinstance(light, DirectionalLight):
-        _drag_vec3("Direction", light.direction, 0.02, normalize=True)
+        _drag_vec3("Direction", light.direction, 0.01, normalize=True, default=np.array([-1.0, -2.0, -1.0], dtype=np.float64))
     if isinstance(light, AreaLight):
-        _drag_vec3("Normal", light.normal, 0.02, normalize=True)
-        changed, value = imgui.drag_float("Radius", float(light.radius), 0.02, 0.02, 1000.0)
-        if changed:
-            light.radius = max(0.02, value)
+        _drag_vec3("Normal", light.normal, 0.01, normalize=True, default=np.array([0.0, -1.0, 0.0], dtype=np.float64))
+        light.radius = _drag_float("Radius", light.radius, 0.005, 0.02, 1000.0, default=1.0)
 
 
-def _draw_camera_properties(scene: Scene) -> None:
-    cam = scene.camera
-    render = scene.render
+def _draw_camera_properties(state: EditorState) -> None:
+    cam = state.scene.camera
+    render = state.scene.render
     _separator("Camera")
-    _drag_vec3("Position", cam.position, 0.05)
-    _drag_vec3("Target", cam.target, 0.05)
+    _draw_transform_tools(state, cam)
+    _drag_vec3("Position", cam.position, 0.01)
+    _drag_vec3("Target", cam.target, 0.01)
     changed, cam.fov = imgui.slider_float("FOV", float(cam.fov), 5.0, 160.0)
-    changed, cam.aperture = imgui.drag_float("Aperture", float(cam.aperture), 0.01, 0.0, 100.0)
+    cam.aperture = _drag_float("Aperture", cam.aperture, 0.005, 0.0, 100.0, default=0.0)
     focus_value = 0.0 if cam.focus_distance is None else float(cam.focus_distance)
-    changed, focus_value = imgui.drag_float("Focus Dist", focus_value, 0.05, 0.0, 10000.0)
-    if changed:
-        cam.focus_distance = None if focus_value <= 0.0 else focus_value
+    focus_value = _drag_float("Focus Dist", focus_value, 0.01, 0.0, 10000.0, default=0.0)
+    cam.focus_distance = None if focus_value <= 0.0 else focus_value
 
     _separator("Render")
     _combo_attr(render, "render_mode", "Mode", ("direct", "path"), ("Direct", "Path"))
@@ -563,7 +588,51 @@ def _draw_material(material: Material) -> None:
         changed, material.ior = imgui.drag_float("IOR", float(material.ior), 0.01, 1.0, 5.0)
     elif isinstance(material, EmissiveMaterial):
         _color3("Color", material.color)
-        changed, material.strength = imgui.drag_float("Strength", float(material.strength), 0.05, 0.0, 100000.0)
+        material.strength = _drag_float("Strength", material.strength, 0.02, 0.0, 100000.0)
+
+
+def _draw_transform_tools(state: EditorState, item: object) -> None:
+    if hasattr(item, "position") and _GIZMO is not None:
+        if imgui.button("Move"):
+            _set_gizmo_operation(state, "translate")
+        if imgui.is_item_hovered():
+            imgui.set_tooltip("Use the viewport handle or press G")
+        imgui.same_line()
+        if imgui.button("Rotate"):
+            _set_gizmo_operation(state, "rotate")
+        if imgui.is_item_hovered():
+            imgui.set_tooltip("Use the viewport handle or press R")
+        imgui.same_line()
+        if imgui.button("Scale"):
+            _set_gizmo_operation(state, "scale")
+        if imgui.is_item_hovered():
+            imgui.set_tooltip("Use the viewport handle or press S")
+
+        changed, state.gizmo_local = imgui.checkbox("Local handles", state.gizmo_local)
+        changed, state.snap_enabled = imgui.checkbox("Snap", state.snap_enabled)
+        if state.snap_enabled:
+            imgui.set_next_item_width(90)
+            state.snap_translate = _drag_float("Move snap", state.snap_translate, 0.01, 0.001, 1000.0)
+            imgui.set_next_item_width(90)
+            state.snap_rotate = _drag_float("Rotate snap", state.snap_rotate, 0.5, 0.1, 180.0)
+            imgui.set_next_item_width(90)
+            state.snap_scale = _drag_float("Scale snap", state.snap_scale, 0.005, 0.001, 10.0)
+
+    if state.transforms.mode is not None and state.transforms.item is item:
+        imgui.text_colored((0.95, 0.75, 0.25, 1.0), state.transforms.status())
+        for axis in ("X", "Y", "Z"):
+            if imgui.button(f"{axis} axis"):
+                state.transforms.axis = axis
+            imgui.same_line()
+        if imgui.button("Free"):
+            state.transforms.axis = None
+        imgui.same_line()
+        if imgui.button("Confirm"):
+            state.transforms.confirm()
+        imgui.same_line()
+        if imgui.button("Cancel"):
+            state.transforms.cancel()
+    imgui.separator()
 
 
 def _draw_add_popup(state: EditorState) -> None:
@@ -602,9 +671,11 @@ def _drag_vec3(
     min_value: float | None = None,
     max_value: float | None = None,
     normalize: bool = False,
+    default: np.ndarray | None = None,
 ) -> None:
     v_min = 0.0 if min_value is None else min_value
     v_max = 0.0 if max_value is None else max_value
+    imgui.set_next_item_width(max(120.0, imgui.get_content_region_avail().x - (64.0 if default is not None else 0.0)))
     changed, values = imgui.drag_float3(label, [float(arr[0]), float(arr[1]), float(arr[2])], speed, v_min, v_max)
     if changed:
         values_arr = np.asarray(values, dtype=np.float64)
@@ -617,6 +688,34 @@ def _drag_vec3(
             if length > 1e-12:
                 values_arr = values_arr / length
         arr[:] = values_arr
+    if default is not None:
+        imgui.same_line()
+        if imgui.button(f"Reset##{label}"):
+            values_arr = np.asarray(default, dtype=np.float64).copy()
+            if normalize:
+                length = float(np.linalg.norm(values_arr))
+                if length > 1e-12:
+                    values_arr = values_arr / length
+            arr[:] = values_arr
+
+
+def _drag_float(
+    label: str,
+    value: float,
+    speed: float,
+    min_value: float,
+    max_value: float,
+    *,
+    default: float | None = None,
+) -> float:
+    imgui.set_next_item_width(max(120.0, imgui.get_content_region_avail().x - (64.0 if default is not None else 0.0)))
+    changed, new_value = imgui.drag_float(label, float(value), speed, min_value, max_value)
+    result = max(min_value, min(max_value, float(new_value))) if changed else float(value)
+    if default is not None:
+        imgui.same_line()
+        if imgui.button(f"Reset##{label}"):
+            result = max(min_value, min(max_value, float(default)))
+    return result
 
 
 def _color3(label: str, arr: np.ndarray) -> None:
@@ -694,7 +793,7 @@ def _quality_for_scene(scene: Scene) -> str:
     return "med"
 
 
-def _handle_viewport_keyboard(orbit: OrbitCamera, dt: float, io: object, require_look_mode: bool) -> None:
+def _handle_viewport_keyboard(state: EditorState, dt: float, io: object, require_look_mode: bool) -> None:
     if not require_look_mode:
         return
     right = 0.0
@@ -712,14 +811,28 @@ def _handle_viewport_keyboard(orbit: OrbitCamera, dt: float, io: object, require
         forward += 1.0
     if imgui.is_key_down(imgui.Key.s):
         forward -= 1.0
-    if right == 0.0 and up == 0.0 and forward == 0.0:
-        return
-    speed = max(0.5, orbit.distance * 0.65)
+    target_velocity = (
+        state.orbit.right * right
+        + state.orbit.up * up
+        + state.orbit.forward * forward
+    )
+    length = float(np.linalg.norm(target_velocity))
+    if length > 1e-12:
+        target_velocity = target_velocity / length
+    speed = max(0.8, min(40.0, state.orbit.distance * 0.75))
     if getattr(io, "key_shift", False):
         speed *= 3.0
     if getattr(io, "key_ctrl", False):
         speed *= 0.25
-    orbit.move(right, up, forward, speed * max(0.0, dt))
+    target_velocity *= speed
+
+    dt = max(0.0, min(0.05, dt))
+    smoothing = 1.0 - float(np.exp(-dt * 14.0))
+    state.fly_velocity += (target_velocity - state.fly_velocity) * smoothing
+    if length <= 1e-12 and float(np.linalg.norm(state.fly_velocity)) < 1e-4:
+        state.fly_velocity *= 0.0
+        return
+    state.orbit.target += state.fly_velocity * dt
 
 
 def _status_text(state: EditorState) -> str:

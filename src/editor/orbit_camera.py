@@ -47,15 +47,26 @@ class OrbitCamera:
         return _normalize(np.cross(self.right, self.forward))
 
     def orbit(self, dx: float, dy: float) -> None:
-        self.yaw += dx * 0.35
-        self.pitch = max(-85.0, min(85.0, self.pitch - dy * 0.35))
+        dx = max(-80.0, min(80.0, float(dx)))
+        dy = max(-80.0, min(80.0, float(dy)))
+        self.yaw += dx * 0.22
+        self.pitch = max(-85.0, min(85.0, self.pitch - dy * 0.22))
 
     def look(self, dx: float, dy: float) -> None:
-        self.yaw += dx * 0.16
-        self.pitch = max(-85.0, min(85.0, self.pitch - dy * 0.16))
+        dx = max(-80.0, min(80.0, float(dx)))
+        dy = max(-80.0, min(80.0, float(dy)))
+        self.yaw += dx * 0.11
+        self.pitch = max(-85.0, min(85.0, self.pitch - dy * 0.11))
 
     def pan(self, dx: float, dy: float) -> None:
-        speed = self.distance * 0.0015
+        self.pan_pixels(dx, dy, viewport_height=900)
+
+    def pan_pixels(self, dx: float, dy: float, viewport_height: int) -> None:
+        dx = max(-120.0, min(120.0, float(dx)))
+        dy = max(-120.0, min(120.0, float(dy)))
+        pixels = max(1.0, float(viewport_height))
+        world_height = 2.0 * math.tan(math.radians(self.fov) * 0.5) * self.distance
+        speed = world_height / pixels
         self.target -= self.right * dx * speed
         self.target += self.view_up * dy * speed
 
@@ -68,5 +79,5 @@ class OrbitCamera:
         self.target += delta
 
     def zoom(self, amount: float) -> None:
-        factor = 0.88 if amount > 0 else 1.14
+        factor = math.exp(-float(amount) * 0.14)
         self.distance = max(0.4, min(250.0, self.distance * factor))
