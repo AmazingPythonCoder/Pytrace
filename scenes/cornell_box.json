@@ -1,0 +1,111 @@
+{
+  "camera": {
+    "position": [0.0, 1.6, 5.2],
+    "target": [0.0, 1.3, 0.0],
+    "up": [0.0, 1.0, 0.0],
+    "fov": 38.0,
+    "aperture": 0.0,
+    "focus_distance": null
+  },
+  "objects": [
+    {
+      "type": "plane",
+      "name": "Floor",
+      "position": [0.0, 0.0, 0.0],
+      "rotation": [0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0],
+      "visible": true,
+      "normal": [0.0, 1.0, 0.0],
+      "material": {"type": "diffuse", "color": [0.75, 0.73, 0.68], "roughness": 1.0}
+    },
+    {
+      "type": "plane",
+      "name": "Ceiling",
+      "position": [0.0, 3.0, 0.0],
+      "rotation": [0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0],
+      "visible": true,
+      "normal": [0.0, -1.0, 0.0],
+      "material": {"type": "diffuse", "color": [0.75, 0.73, 0.68], "roughness": 1.0}
+    },
+    {
+      "type": "plane",
+      "name": "Back Wall",
+      "position": [0.0, 0.0, -2.2],
+      "rotation": [0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0],
+      "visible": true,
+      "normal": [0.0, 0.0, 1.0],
+      "material": {"type": "diffuse", "color": [0.75, 0.73, 0.68], "roughness": 1.0}
+    },
+    {
+      "type": "plane",
+      "name": "Left Wall",
+      "position": [-2.2, 0.0, 0.0],
+      "rotation": [0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0],
+      "visible": true,
+      "normal": [1.0, 0.0, 0.0],
+      "material": {"type": "diffuse", "color": [0.75, 0.12, 0.09], "roughness": 1.0}
+    },
+    {
+      "type": "plane",
+      "name": "Right Wall",
+      "position": [2.2, 0.0, 0.0],
+      "rotation": [0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0],
+      "visible": true,
+      "normal": [-1.0, 0.0, 0.0],
+      "material": {"type": "diffuse", "color": [0.1, 0.45, 0.18], "roughness": 1.0}
+    },
+    {
+      "type": "sphere",
+      "name": "Glass Ball",
+      "position": [-0.65, 0.55, -0.65],
+      "rotation": [0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0],
+      "visible": true,
+      "radius": 0.55,
+      "material": {
+        "type": "glass",
+        "ior": 1.5,
+        "roughness": 0.0,
+        "absorption_color": [0.9, 0.98, 1.0],
+        "tint": [0.96, 0.98, 1.0]
+      }
+    },
+    {
+      "type": "sphere",
+      "name": "Mirror Ball",
+      "position": [0.75, 0.45, -0.15],
+      "rotation": [0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0],
+      "visible": true,
+      "radius": 0.45,
+      "material": {"type": "specular", "color": [1.0, 1.0, 1.0], "roughness": 0.08, "ior": 1.5}
+    }
+  ],
+  "lights": [
+    {
+      "type": "area",
+      "name": "Ceiling Softbox",
+      "position": [0.0, 2.88, -0.4],
+      "color": [1.0, 0.9, 0.72],
+      "intensity": 260.0,
+      "normal": [0.0, -1.0, 0.0],
+      "radius": 0.8
+    }
+  ],
+  "render": {
+    "width": 800,
+    "height": 450,
+    "samples": 64,
+    "max_bounces": 8,
+    "exposure": 1.0,
+    "area_light_samples": 8,
+    "render_mode": "direct",
+    "background_mode": "solid",
+    "environment_path": "",
+    "background_color": [0.02, 0.02, 0.025]
+  }
+}

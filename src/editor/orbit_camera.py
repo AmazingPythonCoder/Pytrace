@@ -50,12 +50,23 @@ class OrbitCamera:
         self.yaw += dx * 0.35
         self.pitch = max(-85.0, min(85.0, self.pitch - dy * 0.35))
 
+    def look(self, dx: float, dy: float) -> None:
+        self.yaw += dx * 0.16
+        self.pitch = max(-85.0, min(85.0, self.pitch - dy * 0.16))
+
     def pan(self, dx: float, dy: float) -> None:
         speed = self.distance * 0.0015
         self.target -= self.right * dx * speed
         self.target += self.view_up * dy * speed
 
+    def move(self, local_right: float, local_up: float, local_forward: float, amount: float) -> None:
+        delta = (
+            self.right * local_right
+            + self.up * local_up
+            + self.forward * local_forward
+        ) * amount
+        self.target += delta
+
     def zoom(self, amount: float) -> None:
         factor = 0.88 if amount > 0 else 1.14
         self.distance = max(0.4, min(250.0, self.distance * factor))
-

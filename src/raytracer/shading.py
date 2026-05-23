@@ -70,6 +70,35 @@ def _random_disk_point(cx: float, cy: float, cz: float, nx: float, ny: float, nz
 
 
 @njit(cache=True)
+def _background_color(dx: float, dy: float, dz: float, background: np.ndarray, environment: np.ndarray, background_mode: int):
+    if background_mode == 2 and environment.shape[0] > 0 and environment.shape[1] > 0:
+        u = math.atan2(dz, dx) / (2.0 * math.pi) + 0.5
+        v = math.acos(max(-1.0, min(1.0, dy))) / math.pi
+        ix = int(max(0, min(environment.shape[1] - 1, int(u * float(environment.shape[1] - 1)))))
+        iy = int(max(0, min(environment.shape[0] - 1, int(v * float(environment.shape[0] - 1)))))
+        return environment[iy, ix, 0], environment[iy, ix, 1], environment[iy, ix, 2]
+    if background_mode == 0:
+        return background[0], background[1], background[2]
+    sky_t = 0.5 * (dy + 1.0)
+    sky_r = (1.0 - sky_t) * 1.0 + sky_t * 0.5
+    sky_g = (1.0 - sky_t) * 1.0 + sky_t * 0.7
+    sky_b = (1.0 - sky_t) * 1.0 + sky_t * 1.0
+    return sky_r, sky_g, sky_b
+
+
+@njit(cache=True)
+def _random_hemisphere_direction(nx: float, ny: float, nz: float):
+    rx, ry, rz = random_in_unit_sphere()
+    lx = nx + rx
+    ly = ny + ry
+    lz = nz + rz
+    llen = math.sqrt(lx * lx + ly * ly + lz * lz)
+    if llen <= 1e-12:
+        return nx, ny, nz
+    return lx / llen, ly / llen, lz / llen
+
+
+@njit(cache=True)
 def _add_point_light_contrib(
     px: float, py: float, pz: float,
     nx: float, ny: float, nz: float,
@@ -80,6 +109,7 @@ def _add_point_light_contrib(
     lr: float, lg: float, lb: float,
     intensity: float,
     spheres: np.ndarray, planes: np.ndarray,
+    triangles: np.ndarray,
     bvh_nodes: np.ndarray, bvh_prims: np.ndarray,
     out_r: float, out_g: float, out_b: float,
     weight: float = 1.0,
@@ -104,7 +134,7 @@ def _add_point_light_contrib(
     if any_hit(
         shadow_ox, shadow_oy, shadow_oz,
         ldx, ldy, ldz,
-        spheres, planes, bvh_nodes, bvh_prims,
+        spheres, planes, triangles, bvh_nodes, bvh_prims,
         1e-4, math.sqrt(dist_sq) - 1e-4,
     ):
         return out_r, out_g, out_b
@@ -139,12 +169,73 @@ def _add_point_light_contrib(
 
 
 @njit(cache=True)
+def _add_directional_light_contrib(
+    px: float, py: float, pz: float,
+    nx: float, ny: float, nz: float,
+    color_r: float, color_g: float, color_b: float,
+    roughness: float,
+    ray_dx: float, ray_dy: float, ray_dz: float,
+    dir_x: float, dir_y: float, dir_z: float,
+    lr: float, lg: float, lb: float,
+    intensity: float,
+    spheres: np.ndarray, planes: np.ndarray, triangles: np.ndarray,
+    bvh_nodes: np.ndarray, bvh_prims: np.ndarray,
+    out_r: float, out_g: float, out_b: float,
+) -> tuple[float, float, float]:
+    ldx = -dir_x
+    ldy = -dir_y
+    ldz = -dir_z
+    llen = math.sqrt(ldx * ldx + ldy * ldy + ldz * ldz)
+    if llen <= 1e-12:
+        return out_r, out_g, out_b
+    ldx /= llen
+    ldy /= llen
+    ldz /= llen
+
+    shadow_ox = px + nx * 1e-4
+    shadow_oy = py + ny * 1e-4
+    shadow_oz = pz + nz * 1e-4
+    if any_hit(
+        shadow_ox, shadow_oy, shadow_oz,
+        ldx, ldy, ldz,
+        spheres, planes, triangles, bvh_nodes, bvh_prims,
+        1e-4, 1e9,
+    ):
+        return out_r, out_g, out_b
+
+    n_dot_l = nx * ldx + ny * ldy + nz * ldz
+    wrap = 0.6 * roughness
+    ndotl = max(0.0, (n_dot_l + wrap) / (1.0 + wrap))
+    ndotl = ndotl * (1.0 - 0.45 * roughness)
+
+    specular = 0.0
+    if roughness < 1.0:
+        view_dx, view_dy, view_dz = -ray_dx, -ray_dy, -ray_dz
+        hx = ldx + view_dx
+        hy = ldy + view_dy
+        hz = ldz + view_dz
+        hlen = math.sqrt(hx * hx + hy * hy + hz * hz)
+        if hlen > 1e-8:
+            hx /= hlen
+            hy /= hlen
+            hz /= hlen
+            specular_power = 2.0 / (roughness * roughness + 0.001)
+            ndoth = max(0.0, nx * hx + ny * hy + nz * hz)
+            specular = (ndoth ** specular_power) * (1.0 - roughness)
+
+    out_r += (color_r * lr * intensity * ndotl) + (lr * intensity * specular)
+    out_g += (color_g * lg * intensity * ndotl) + (lg * intensity * specular)
+    out_b += (color_b * lb * intensity * ndotl) + (lb * intensity * specular)
+    return out_r, out_g, out_b
+
+
+@njit(cache=True)
 def _shade_diffuse(
     px: float, py: float, pz: float,
     nx: float, ny: float, nz: float,
     mat_idx: float,
     ray_dx: float, ray_dy: float, ray_dz: float,
-    spheres: np.ndarray, planes: np.ndarray,
+    spheres: np.ndarray, planes: np.ndarray, triangles: np.ndarray,
     bvh_nodes: np.ndarray, bvh_prims: np.ndarray,
     materials: np.ndarray, lights: np.ndarray,
     area_light_samples: int,
@@ -202,9 +293,9 @@ def _shade_diffuse(
                 lights[i, 1], lights[i, 2], lights[i, 3],
                 lights[i, 4], lights[i, 5], lights[i, 6],
                 lights[i, 7],
-                spheres, planes, bvh_nodes, bvh_prims, out_r, out_g, out_b,
+                spheres, planes, triangles, bvh_nodes, bvh_prims, out_r, out_g, out_b,
             )
-        else:
+        elif light_type < 1.5:
             cx, cy, cz = lights[i, 1], lights[i, 2], lights[i, 3]
             lnx, lny, lnz = lights[i, 4], lights[i, 5], lights[i, 6]
             lr, lg, lb = lights[i, 7], lights[i, 8], lights[i, 9]
@@ -218,8 +309,19 @@ def _shade_diffuse(
                     color_r, color_g, color_b, roughness,
                     ray_dx, ray_dy, ray_dz,
                     lx, ly, lz, lr, lg, lb, sample_intensity,
-                    spheres, planes, bvh_nodes, bvh_prims, out_r, out_g, out_b,
+                    spheres, planes, triangles, bvh_nodes, bvh_prims, out_r, out_g, out_b,
                 )
+        else:
+            out_r, out_g, out_b = _add_directional_light_contrib(
+                px, py, pz, nx, ny, nz,
+                color_r, color_g, color_b, roughness,
+                ray_dx, ray_dy, ray_dz,
+                lights[i, 1], lights[i, 2], lights[i, 3],
+                lights[i, 4], lights[i, 5], lights[i, 6],
+                lights[i, 7],
+                spheres, planes, triangles, bvh_nodes, bvh_prims,
+                out_r, out_g, out_b,
+            )
 
     t = 0.5 * (ny + 1.0)
     amb_r = (1.0 - t) * 0.12 + t * 0.55
@@ -236,10 +338,12 @@ def _shade_diffuse(
 def trace(
     ray_ox: float, ray_oy: float, ray_oz: float,
     ray_dx: float, ray_dy: float, ray_dz: float,
-    spheres: np.ndarray, planes: np.ndarray,
+    spheres: np.ndarray, planes: np.ndarray, triangles: np.ndarray,
     bvh_nodes: np.ndarray, bvh_prims: np.ndarray,
     materials: np.ndarray, lights: np.ndarray,
-    background: np.ndarray, max_bounces: int, area_light_samples: int,
+    background: np.ndarray, environment: np.ndarray,
+    max_bounces: int, area_light_samples: int,
+    render_mode: int, background_mode: int,
 ) -> tuple[float, float, float]:
     
     color_r, color_g, color_b = 0.0, 0.0, 0.0
@@ -249,36 +353,41 @@ def trace(
         hit = find_closest_hit(
             ray_ox, ray_oy, ray_oz,
             ray_dx, ray_dy, ray_dz,
-            spheres, planes, bvh_nodes, bvh_prims, 1e-4, 1e9,
+            spheres, planes, triangles, bvh_nodes, bvh_prims, 1e-4, 1e9,
         )
         
         t, px, py, pz, nx, ny, nz, front_face, mat_idx = hit
         
         if t < 0.0:
-            # Sky gradient
-            sky_t = 0.5 * (ray_dy + 1.0)
-            sky_r = (1.0 - sky_t) * 1.0 + sky_t * 0.5
-            sky_g = (1.0 - sky_t) * 1.0 + sky_t * 0.7
-            sky_b = (1.0 - sky_t) * 1.0 + sky_t * 1.0
-            
-            color_r += th_r * sky_r
-            color_g += th_g * sky_g
-            color_b += th_b * sky_b
+            bg_r, bg_g, bg_b = _background_color(ray_dx, ray_dy, ray_dz, background, environment, background_mode)
+            color_r += th_r * bg_r
+            color_g += th_g * bg_g
+            color_b += th_b * bg_b
             break
             
         mat_type = materials[int(mat_idx), 0]
         
         if mat_type == 0.0: # Diffuse
-            dr, dg, db = _shade_diffuse(
-                px, py, pz, nx, ny, nz, mat_idx,
-                ray_dx, ray_dy, ray_dz,
-                spheres, planes, bvh_nodes, bvh_prims,
-                materials, lights, area_light_samples,
-            )
-            color_r += th_r * dr
-            color_g += th_g * dg
-            color_b += th_b * db
-            break
+            if render_mode == 1:
+                idx = int(mat_idx)
+                th_r *= materials[idx, 1]
+                th_g *= materials[idx, 2]
+                th_b *= materials[idx, 3]
+                ray_dx, ray_dy, ray_dz = _random_hemisphere_direction(nx, ny, nz)
+                ray_ox = px + nx * 1e-4
+                ray_oy = py + ny * 1e-4
+                ray_oz = pz + nz * 1e-4
+            else:
+                dr, dg, db = _shade_diffuse(
+                    px, py, pz, nx, ny, nz, mat_idx,
+                    ray_dx, ray_dy, ray_dz,
+                    spheres, planes, triangles, bvh_nodes, bvh_prims,
+                    materials, lights, area_light_samples,
+                )
+                color_r += th_r * dr
+                color_g += th_g * dg
+                color_b += th_b * db
+                break
             
         elif mat_type == 1.0: # Specular
             mr, mg, mb = materials[int(mat_idx), 1], materials[int(mat_idx), 2], materials[int(mat_idx), 3]
@@ -374,10 +483,18 @@ def trace(
                 ray_ox = px - nx * 1e-4
                 ray_oy = py - ny * 1e-4
                 ray_oz = pz - nz * 1e-4
+        elif mat_type == 3.0: # Emissive
+            idx = int(mat_idx)
+            strength = materials[idx, 4]
+            color_r += th_r * materials[idx, 1] * strength
+            color_g += th_g * materials[idx, 2] * strength
+            color_b += th_b * materials[idx, 3] * strength
+            break
     else:
-        color_r += th_r * background[0]
-        color_g += th_g * background[1]
-        color_b += th_b * background[2]
+        bg_r, bg_g, bg_b = _background_color(ray_dx, ray_dy, ray_dz, background, environment, background_mode)
+        color_r += th_r * bg_r
+        color_g += th_g * bg_g
+        color_b += th_b * bg_b
 
     return color_r, color_g, color_b
 
@@ -397,6 +514,13 @@ def trace_pixel(
     cam_vx: float,
     cam_vy: float,
     cam_vz: float,
+    lens_ux: float,
+    lens_uy: float,
+    lens_uz: float,
+    lens_vx: float,
+    lens_vy: float,
+    lens_vz: float,
+    aperture: float,
     inv_width: float,
     inv_height: float,
     samples: int,
@@ -404,11 +528,15 @@ def trace_pixel(
     area_light_samples: int,
     spheres: np.ndarray,
     planes: np.ndarray,
+    triangles: np.ndarray,
     bvh_nodes: np.ndarray,
     bvh_prims: np.ndarray,
     materials: np.ndarray,
     lights: np.ndarray,
     background: np.ndarray,
+    environment: np.ndarray,
+    render_mode: int,
+    background_mode: int,
 ) -> tuple[float, float, float]:
     cr, cg, cb = 0.0, 0.0, 0.0
     inv_samples = 1.0 / samples
@@ -420,9 +548,12 @@ def trace_pixel(
         s = (px + jx) * inv_width
         t = 1.0 - (py + jy) * inv_height
 
-        dx = cam_llx + s * cam_hx + t * cam_vx - cam_ox
-        dy = cam_lly + s * cam_hy + t * cam_vy - cam_oy
-        dz = cam_llz + s * cam_hz + t * cam_vz - cam_oz
+        focus_x = cam_llx + s * cam_hx + t * cam_vx
+        focus_y = cam_lly + s * cam_hy + t * cam_vy
+        focus_z = cam_llz + s * cam_hz + t * cam_vz
+        dx = focus_x - cam_ox
+        dy = focus_y - cam_oy
+        dz = focus_z - cam_oz
 
         dlen = math.sqrt(dx * dx + dy * dy + dz * dz)
         if dlen > 0.0:
@@ -430,22 +561,52 @@ def trace_pixel(
             dy /= dlen
             dz /= dlen
 
+        ray_ox = cam_ox
+        ray_oy = cam_oy
+        ray_oz = cam_oz
+        if aperture > 0.0:
+            while True:
+                lx = random.random() * 2.0 - 1.0
+                ly = random.random() * 2.0 - 1.0
+                if lx * lx + ly * ly <= 1.0:
+                    break
+            lens_x = aperture * lx
+            lens_y = aperture * ly
+            off_x = lens_ux * lens_x + lens_vx * lens_y
+            off_y = lens_uy * lens_x + lens_vy * lens_y
+            off_z = lens_uz * lens_x + lens_vz * lens_y
+            ray_ox = cam_ox + off_x
+            ray_oy = cam_oy + off_y
+            ray_oz = cam_oz + off_z
+            dx = focus_x - ray_ox
+            dy = focus_y - ray_oy
+            dz = focus_z - ray_oz
+            dlen = math.sqrt(dx * dx + dy * dy + dz * dz)
+            if dlen > 0.0:
+                dx /= dlen
+                dy /= dlen
+                dz /= dlen
+
         tr, tg, tb = trace(
-            cam_ox,
-            cam_oy,
-            cam_oz,
+            ray_ox,
+            ray_oy,
+            ray_oz,
             dx,
             dy,
             dz,
             spheres,
             planes,
+            triangles,
             bvh_nodes,
             bvh_prims,
             materials,
             lights,
             background,
+            environment,
             max_bounces,
             area_light_samples,
+            render_mode,
+            background_mode,
         )
         cr += tr
         cg += tg
@@ -472,6 +633,13 @@ def render_tile(
     cam_vx: float,
     cam_vy: float,
     cam_vz: float,
+    lens_ux: float,
+    lens_uy: float,
+    lens_uz: float,
+    lens_vx: float,
+    lens_vy: float,
+    lens_vz: float,
+    aperture: float,
     inv_width: float,
     inv_height: float,
     samples: int,
@@ -479,11 +647,15 @@ def render_tile(
     area_light_samples: int,
     spheres: np.ndarray,
     planes: np.ndarray,
+    triangles: np.ndarray,
     bvh_nodes: np.ndarray,
     bvh_prims: np.ndarray,
     materials: np.ndarray,
     lights: np.ndarray,
     background: np.ndarray,
+    environment: np.ndarray,
+    render_mode: int,
+    background_mode: int,
 ) -> np.ndarray:
     tile_h = y1 - y0
     tile_w = x1 - x0
@@ -508,6 +680,13 @@ def render_tile(
                 cam_vx,
                 cam_vy,
                 cam_vz,
+                lens_ux,
+                lens_uy,
+                lens_uz,
+                lens_vx,
+                lens_vy,
+                lens_vz,
+                aperture,
                 inv_width,
                 inv_height,
                 samples,
@@ -515,11 +694,15 @@ def render_tile(
                 area_light_samples,
                 spheres,
                 planes,
+                triangles,
                 bvh_nodes,
                 bvh_prims,
                 materials,
                 lights,
                 background,
+                environment,
+                render_mode,
+                background_mode,
             )
             result[row, col, 0] = cr
             result[row, col, 1] = cg

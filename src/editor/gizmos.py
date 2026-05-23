@@ -11,10 +11,11 @@ except ImportError:  # pragma: no cover
     pygame = None  # type: ignore[assignment]
 
 from src.scene.camera import Camera
-from src.scene.lights import AreaLight, Light
+from src.scene.lights import AreaLight, DirectionalLight, Light
 from src.scene.objects import Plane, SceneObject, Sphere
 from src.scene.scene import Scene
 
+from .layout import Rect
 from .orbit_camera import OrbitCamera
 
 
@@ -25,6 +26,7 @@ class _Snapshot:
     rotation: np.ndarray | None = None
     scale: np.ndarray | None = None
     normal: np.ndarray | None = None
+    direction: np.ndarray | None = None
     radius: float | None = None
 
 
@@ -82,6 +84,21 @@ class TransformController:
             return True
         return False
 
+    def handle_gizmo_press(self, event: Any, scene: Scene, orbit_camera: OrbitCamera, viewport: Rect) -> bool:
+        if pygame is None or self.mode is not None:
+            return False
+        if event.type != pygame.MOUSEBUTTONDOWN or event.button != 1 or scene.selected is None:
+            return False
+        position = self._item_position(scene.selected)
+        if position is None:
+            return False
+        axis = self._pick_axis(event.pos, position, orbit_camera, viewport)
+        if axis is None:
+            return False
+        self.begin("move", scene.selected)
+        self.axis = axis
+        return True
+
     def handle_motion(self, event: Any, orbit_camera: OrbitCamera) -> bool:
         if pygame is None or self.mode is None or event.type != pygame.MOUSEMOTION:
             return False
@@ -129,6 +146,8 @@ class TransformController:
             snap.scale = item.scale.copy()
         if isinstance(item, (Plane, AreaLight)):
             snap.normal = item.normal.copy()
+        if isinstance(item, DirectionalLight):
+            snap.direction = item.direction.copy()
         if isinstance(item, (Sphere, AreaLight)):
             snap.radius = float(item.radius)
         return snap
@@ -145,6 +164,8 @@ class TransformController:
                 item.scale[:] = snap.scale
         if isinstance(item, (Plane, AreaLight)) and snap.normal is not None:
             item.normal[:] = snap.normal
+        if isinstance(item, DirectionalLight) and snap.direction is not None:
+            item.direction[:] = snap.direction
         if isinstance(item, (Sphere, AreaLight)) and snap.radius is not None:
             item.radius = snap.radius
 
@@ -156,6 +177,65 @@ class TransformController:
         if axis == "Z":
             return np.array([0.0, 0.0, 1.0], dtype=np.float64)
         return np.zeros(3, dtype=np.float64)
+
+    def _item_position(self, item: object) -> np.ndarray | None:
+        if hasattr(item, "position"):
+            return np.asarray(getattr(item, "position"), dtype=np.float64)
+        return None
+
+    def _project(self, point: np.ndarray, orbit_camera: OrbitCamera, viewport: Rect) -> tuple[float, float] | None:
+        rel = point - orbit_camera.eye
+        z = float(np.dot(rel, orbit_camera.forward))
+        if z <= 1e-6:
+            return None
+        aspect = viewport.w / viewport.h
+        tan_half = float(np.tan(np.radians(orbit_camera.fov * 0.5)))
+        ndc_x = float(np.dot(rel, orbit_camera.right)) / (z * tan_half * aspect)
+        ndc_y = float(np.dot(rel, orbit_camera.view_up)) / (z * tan_half)
+        if abs(ndc_x) > 1.4 or abs(ndc_y) > 1.4:
+            return None
+        sx = viewport.x + (ndc_x + 1.0) * 0.5 * viewport.w
+        sy = viewport.y + (1.0 - ndc_y) * 0.5 * viewport.h
+        return sx, sy
+
+    def _distance_to_segment(self, point: tuple[int, int], a: tuple[float, float], b: tuple[float, float]) -> float:
+        px, py = float(point[0]), float(point[1])
+        ax, ay = a
+        bx, by = b
+        vx, vy = bx - ax, by - ay
+        length_sq = vx * vx + vy * vy
+        if length_sq <= 1e-9:
+            return float(np.hypot(px - ax, py - ay))
+        t = max(0.0, min(1.0, ((px - ax) * vx + (py - ay) * vy) / length_sq))
+        cx = ax + t * vx
+        cy = ay + t * vy
+        return float(np.hypot(px - cx, py - cy))
+
+    def _pick_axis(
+        self,
+        mouse_pos: tuple[int, int],
+        position: np.ndarray,
+        orbit_camera: OrbitCamera,
+        viewport: Rect,
+    ) -> str | None:
+        origin = self._project(position, orbit_camera, viewport)
+        if origin is None:
+            return None
+        best_axis: str | None = None
+        best_distance = 12.0
+        for axis, direction in (
+            ("X", np.array([1.0, 0.0, 0.0], dtype=np.float64)),
+            ("Y", np.array([0.0, 1.0, 0.0], dtype=np.float64)),
+            ("Z", np.array([0.0, 0.0, 1.0], dtype=np.float64)),
+        ):
+            end = self._project(position + direction * 1.25, orbit_camera, viewport)
+            if end is None:
+                continue
+            distance = self._distance_to_segment(mouse_pos, origin, end)
+            if distance < best_distance:
+                best_distance = distance
+                best_axis = axis
+        return best_axis
 
     def _move(self, dx: float, dy: float, orbit_camera: OrbitCamera) -> None:
         item = self.item
@@ -191,6 +271,8 @@ class TransformController:
             item.rotation[idx] += amount * 30.0
         if isinstance(item, (Plane, AreaLight)):
             item.normal[:] = self._rotate_vector(item.normal, axis, amount)
+        if isinstance(item, DirectionalLight):
+            item.direction[:] = self._rotate_vector(item.direction, axis, amount)
         if isinstance(item, Camera):
             offset = item.target - item.position
             item.target[:] = item.position + self._rotate_vector(offset, axis, amount)
@@ -207,4 +289,3 @@ class TransformController:
             rotated = np.array([x * c + z * s, y, -x * s + z * c], dtype=np.float64)
         length = float(np.linalg.norm(rotated))
         return rotated / length if length > 1e-12 else vector
-

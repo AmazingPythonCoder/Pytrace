@@ -9,8 +9,8 @@ except ImportError:  # pragma: no cover
     pygame = None  # type: ignore[assignment]
 
 from src.scene.camera import Camera
-from src.scene.lights import Light
-from src.scene.objects import Plane, SceneObject, Sphere
+from src.scene.lights import DirectionalLight, Light
+from src.scene.objects import Mesh, Plane, SceneObject, Sphere
 from src.scene.scene import Scene
 
 from . import layout
@@ -100,6 +100,10 @@ class Outliner:
             return "S"
         if isinstance(item, Plane):
             return "P"
+        if isinstance(item, Mesh):
+            return "M"
+        if isinstance(item, DirectionalLight):
+            return "D"
         if isinstance(item, Light):
             return "L"
         if isinstance(item, Camera):
@@ -109,4 +113,3 @@ class Outliner:
     def _draw_text(self, surface: Any, font: Any, text: str, pos: tuple[int, int], color: tuple[int, int, int, int]) -> None:
         img = font.render(text, True, color)
         surface.blit(img, pos)
-

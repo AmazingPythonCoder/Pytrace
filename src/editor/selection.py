@@ -6,8 +6,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from src.scene.camera import Camera
-from src.scene.lights import Light
-from src.scene.objects import Plane, SceneObject, Sphere
+from src.scene.lights import DirectionalLight, Light
+from src.scene.objects import Mesh, Plane, SceneObject, Sphere
 from src.scene.scene import Scene
 
 from .layout import Rect
@@ -66,6 +66,53 @@ def _plane_basis(normal: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return tangent, bitangent
 
 
+def _rotation_matrix(euler_degrees: np.ndarray) -> np.ndarray:
+    rx, ry, rz = np.radians(np.asarray(euler_degrees, dtype=np.float64))
+    cx, sx = np.cos(rx), np.sin(rx)
+    cy, sy = np.cos(ry), np.sin(ry)
+    cz, sz = np.cos(rz), np.sin(rz)
+    mx = np.array([[1.0, 0.0, 0.0], [0.0, cx, -sx], [0.0, sx, cx]], dtype=np.float64)
+    my = np.array([[cy, 0.0, sy], [0.0, 1.0, 0.0], [-sy, 0.0, cy]], dtype=np.float64)
+    mz = np.array([[cz, -sz, 0.0], [sz, cz, 0.0], [0.0, 0.0, 1.0]], dtype=np.float64)
+    return mz @ my @ mx
+
+
+def _mesh_world_vertices(mesh: Mesh) -> np.ndarray:
+    if mesh.vertices.size == 0:
+        return np.zeros((0, 3), dtype=np.float64)
+    return (mesh.vertices * mesh.scale) @ _rotation_matrix(mesh.rotation).T + mesh.position
+
+
+def _hit_triangle(ray: PickRay, v0: np.ndarray, v1: np.ndarray, v2: np.ndarray) -> float | None:
+    e1 = v1 - v0
+    e2 = v2 - v0
+    h = np.cross(ray.direction, e2)
+    a = float(np.dot(e1, h))
+    if abs(a) < 1e-8:
+        return None
+    f = 1.0 / a
+    s = ray.origin - v0
+    u = f * float(np.dot(s, h))
+    if u < 0.0 or u > 1.0:
+        return None
+    q = np.cross(s, e1)
+    v = f * float(np.dot(ray.direction, q))
+    if v < 0.0 or u + v > 1.0:
+        return None
+    t = f * float(np.dot(e2, q))
+    return t if t > 1e-4 else None
+
+
+def _hit_mesh(ray: PickRay, mesh: Mesh) -> float | None:
+    vertices = _mesh_world_vertices(mesh)
+    nearest: float | None = None
+    for tri in mesh.triangles:
+        t = _hit_triangle(ray, vertices[int(tri[0])], vertices[int(tri[1])], vertices[int(tri[2])])
+        if t is not None and (nearest is None or t < nearest):
+            nearest = t
+    return nearest
+
+
 def _hit_plane_preview(ray: PickRay, plane: Plane) -> float | None:
     normal = _normalize(plane.normal)
     denom = float(np.dot(ray.direction, normal))
@@ -89,6 +136,8 @@ def _object_hit(ray: PickRay, obj: SceneObject) -> float | None:
         return _hit_sphere(ray, obj.position, radius)
     if isinstance(obj, Plane):
         return _hit_plane_preview(ray, obj)
+    if isinstance(obj, Mesh):
+        return _hit_mesh(ray, obj)
     return None
 
 
@@ -109,7 +158,8 @@ def pick(x: int, y: int, viewport: Rect, orbit_camera: OrbitCamera, scene: Scene
             nearest_item = obj
 
     for light in scene.lights:
-        t = _hit_sphere(ray, light.position, 0.24)
+        radius = 0.34 if isinstance(light, DirectionalLight) else 0.24
+        t = _hit_sphere(ray, light.position, radius)
         if t is not None and t < nearest_t:
             nearest_t = t
             nearest_item = light
@@ -129,4 +179,3 @@ def display_name(item: object) -> str:
     if isinstance(item, Camera):
         return "Camera"
     return "None"
-

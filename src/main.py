@@ -13,7 +13,8 @@ if str(ROOT) not in sys.path:
 from src.raytracer.gpu import cuda_init  # noqa: F401
 from numba import cuda
 
-from src.raytracer.renderer import default_workers, render, save_png
+from src.raytracer.history import save_render_history
+from src.raytracer.renderer import available_cpu_count, default_workers, render, save_png
 from src.raytracer.render_context import build_render_context
 from src.scene.serializer import load_scene
 from src.scene.scene import Scene
@@ -58,7 +59,7 @@ def main() -> int:
         "--workers",
         type=int,
         default=None,
-        help="Parallel worker processes (default: CPU count minus 1)",
+        help="Parallel worker processes (default: available logical CPUs minus 1)",
     )
     parser.add_argument(
         "--no-parallel",
@@ -189,12 +190,29 @@ def main() -> int:
     if use_gpu:
         from src.raytracer.gpu.renderer import prepare_gpu_render, render_gpu
 
-        print("Uploading scene to GPU...")
         ctx = build_render_context(scene)
-        dev = prepare_gpu_render(ctx)
-        start_time = time.time()
-        image = render_gpu(ctx, progress_callback=progress, dev=dev)
+        if ctx.gpu_supported:
+            print("Uploading scene to GPU...")
+            dev = prepare_gpu_render(ctx)
+            start_time = time.time()
+            image = render_gpu(ctx, progress_callback=progress, dev=dev)
+        else:
+            reason = ctx.gpu_fallback_reason or "scene feature is CPU-only"
+            print(f"Scene uses CPU-only features ({reason}); using CPU renderer.")
+            workers = workers or default_workers(reserve=1)
+            print(f"CPU render using {workers} worker(s) from {available_cpu_count()} available core(s).")
+            image = render(
+                scene,
+                progress_callback=progress,
+                workers=workers,
+                parallel=True,
+                debug_workers=args.debug_workers,
+                use_gpu=False,
+            )
     else:
+        if parallel:
+            workers = workers or default_workers(reserve=1)
+            print(f"CPU render using {workers} worker(s) from {available_cpu_count()} available core(s).")
         image = render(
             scene,
             progress_callback=progress,
@@ -207,47 +225,9 @@ def main() -> int:
     save_png(image, out_path, exposure=scene.render.exposure)
     print(f"Wrote {out_path}")
 
-    # Save to rendering history
     try:
-        import json
-        from datetime import datetime
-        history_dir = ROOT / "output" / "history"
-        history_dir.mkdir(parents=True, exist_ok=True)
-
-        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        history_filename = f"render_{timestamp_str}_{args.level}.png"
-        history_path = history_dir / history_filename
-
-        save_png(image, history_path, exposure=scene.render.exposure)
+        history_path = save_render_history(image, scene, level=args.level, root=ROOT)
         print(f"Saved history copy to {history_path}")
-
-        # Update history.js database
-        js_path = history_dir / "history.js"
-        history_entries = []
-        if js_path.exists():
-            try:
-                content = js_path.read_text(encoding="utf-8").strip()
-                if "const PYTRACE_HISTORY = " in content:
-                    json_str = content.split("const PYTRACE_HISTORY = ", 1)[1]
-                    if json_str.endswith(";"):
-                        json_str = json_str[:-1]
-                    history_entries = json.loads(json_str)
-            except Exception:
-                history_entries = []
-
-        new_entry = {
-            "filename": f"output/history/{history_filename}",
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "level": args.level,
-            "width": scene.render.width,
-            "height": scene.render.height,
-            "samples": scene.render.samples,
-            "bounces": scene.render.max_bounces
-        }
-        history_entries.insert(0, new_entry)  # Newest first
-
-        js_content = f"const PYTRACE_HISTORY = {json.dumps(history_entries, indent=2)};"
-        js_path.write_text(js_content, encoding="utf-8")
     except Exception as e:
         print(f"Warning: Could not save to history: {e}")
 

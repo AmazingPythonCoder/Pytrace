@@ -13,8 +13,9 @@ sys.path.insert(0, str(ROOT))
 from src.editor.layout import Rect
 from src.editor.orbit_camera import OrbitCamera
 from src.editor.selection import pick
+from src.scene.lights import DirectionalLight, PointLight
 from src.scene.materials import DiffuseMaterial
-from src.scene.objects import Plane, Sphere
+from src.scene.objects import Mesh, Plane, Sphere
 from src.scene.scene import Scene
 
 
@@ -60,9 +61,37 @@ def main() -> None:
     )
     assert pick(400, 300, viewport, camera, plane_scene) is plane_scene.objects[0]
 
-    print("Selection OK: sphere hit, plane hit, miss, and nearest ordering verified")
+    mesh_scene = Scene(
+        objects=[
+            Mesh.cube(
+                name="Pick Cube",
+                position=np.array([0.0, 0.0, 1.0], dtype=np.float64),
+                material=DiffuseMaterial(),
+            )
+        ]
+    )
+    assert pick(400, 300, viewport, camera, mesh_scene) is mesh_scene.objects[0]
+
+    light_scene = Scene(
+        lights=[
+            PointLight(
+                name="Pick Point",
+                position=np.array([0.0, 0.0, 1.0], dtype=np.float64),
+            ),
+            DirectionalLight(
+                name="Pick Sun",
+                position=np.array([2.0, 0.0, 1.0], dtype=np.float64),
+            ),
+        ]
+    )
+    assert pick(400, 300, viewport, camera, light_scene) is light_scene.lights[0]
+
+    camera_scene = Scene()
+    camera_scene.camera.position = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+    assert pick(400, 300, viewport, camera, camera_scene) is camera_scene.camera
+
+    print("Selection OK: sphere, plane, mesh, light, camera, miss, and nearest ordering verified")
 
 
 if __name__ == "__main__":
     main()
-

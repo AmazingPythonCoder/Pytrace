@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import src.editor.app  # noqa: F401
+import src.editor.add_menu  # noqa: F401
 import src.editor.gizmos  # noqa: F401
 import src.editor.layout  # noqa: F401
 import src.editor.orbit_camera  # noqa: F401
@@ -26,4 +27,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

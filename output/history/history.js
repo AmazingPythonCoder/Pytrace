@@ -1,5 +1,50 @@
 const PYTRACE_HISTORY = [
   {
+    "filename": "output/history/render_20260523_123103_low.png",
+    "timestamp": "2026-05-23 12:31:03",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
+    "filename": "output/history/render_20260523_123046_low.png",
+    "timestamp": "2026-05-23 12:30:46",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
+    "filename": "output/history/render_20260523_123035_low.png",
+    "timestamp": "2026-05-23 12:30:35",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
+    "filename": "output/history/render_20260523_123020_low.png",
+    "timestamp": "2026-05-23 12:30:20",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
+    "filename": "output/history/render_20260523_123001_low.png",
+    "timestamp": "2026-05-23 12:30:01",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
     "filename": "output/history/render_20260522_175611_ultra.png",
     "timestamp": "2026-05-22 17:56:14",
     "level": "ultra",

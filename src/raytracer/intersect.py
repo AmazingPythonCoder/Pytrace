@@ -87,6 +87,7 @@ def any_hit(
     dz: float,
     spheres: np.ndarray,
     planes: np.ndarray,
+    triangles: np.ndarray,
     bvh_nodes: np.ndarray,
     bvh_prims: np.ndarray,
     t_min: float,
@@ -94,7 +95,7 @@ def any_hit(
 ) -> bool:
     return bvh_any_hit(
         ox, oy, oz, dx, dy, dz,
-        spheres, planes, bvh_nodes, bvh_prims,
+        spheres, planes, triangles, bvh_nodes, bvh_prims,
         t_min, t_max,
     )
 
@@ -109,6 +110,7 @@ def find_closest_hit(
     dz: float,
     spheres: np.ndarray,
     planes: np.ndarray,
+    triangles: np.ndarray,
     bvh_nodes: np.ndarray,
     bvh_prims: np.ndarray,
     t_min: float = 1e-4,
@@ -116,6 +118,6 @@ def find_closest_hit(
 ) -> tuple[float, float, float, float, float, float, float, bool, float]:
     return bvh_find_closest_hit(
         ox, oy, oz, dx, dy, dz,
-        spheres, planes, bvh_nodes, bvh_prims,
+        spheres, planes, triangles, bvh_nodes, bvh_prims,
         t_min, t_max,
     )

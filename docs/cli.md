@@ -1,31 +1,35 @@
-# CLI reference
+# CLI Reference
 
 Entry point: `python src/main.py`
 
 ## Behavior
 
-- Without a graphical editor, every invocation performs a **headless render** of `Scene.default()`.
-- Progress is printed as a terminal progress bar (tiles in parallel mode, pixel batches in single-threaded mode).
-- After rendering, the image is tonemapped and saved as PNG; a history entry may be appended (see [Output & gallery](output-and-gallery.md)).
+- `python src/main.py` opens the graphical editor.
+- `python src/main.py --headless` renders a scene to PNG without opening a window.
+- `--scene PATH` loads a serialized scene JSON for either editor or headless mode.
+- Progress is printed as a terminal progress bar in headless mode.
+- After headless rendering, the image is tonemapped and saved as PNG; a history PNG and `history.js` gallery entry are also written.
 
 ## Options
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--headless` | *(implicit)* | Acknowledged for future use; rendering is headless today regardless |
+| `--headless` | off | Render to PNG instead of opening the editor |
 | `--output PATH` | `output/render.png` | Output PNG path, relative to project root |
-| `--width N` | *(preset)* | Override image width |
-| `--height N` | *(preset)* | Override image height |
-| `--samples N` | *(preset)* | Samples per pixel (anti-aliasing) |
-| `--bounces N` | *(preset)* | Maximum ray recursion depth |
-| `--level {low,med,high,ultra}` | `high` | Quality preset (see below) |
-| `--workers N` | CPU count − 1 | Worker processes for tile rendering |
-| `--no-parallel` | off | Force single-threaded render (debugging) |
+| `--scene PATH` | none | Load scene JSON |
+| `--width N` | preset | Override image width |
+| `--height N` | preset | Override image height |
+| `--samples N` | preset | Samples per pixel |
+| `--bounces N` | preset | Maximum ray recursion depth |
+| `--level {low,med,high,ultra}` | `med` | Quality preset |
+| `--gpu [BOOL]` | true | Use CUDA when available |
+| `--workers N` | available logical CPUs minus 1 | Worker processes for CPU tile rendering |
+| `--no-parallel` | off | Force single-threaded CPU render |
 | `--debug-workers` | off | Print main PID and tile-completion hints |
 
-CLI overrides apply **after** the level preset is applied.
+CLI overrides apply after the level preset is applied.
 
-## Quality presets (`--level`)
+## Quality Presets
 
 | Level | Width | Height | Samples | Max bounces |
 |-------|-------|--------|---------|-------------|
@@ -36,46 +40,38 @@ CLI overrides apply **after** the level preset is applied.
 
 ## Examples
 
-Fast preview:
+Open the editor:
 
 ```bash
-python src/main.py --level low
+python src/main.py
+```
+
+Headless preview:
+
+```bash
+python src/main.py --headless --level low
+```
+
+Load an example scene:
+
+```bash
+python src/main.py --scene scenes/cornell_box.json
 ```
 
 Custom resolution and sample count:
 
 ```bash
-python src/main.py --level med --width 640 --height 360 --samples 16
+python src/main.py --headless --level med --width 640 --height 360 --samples 16
 ```
 
-Single-threaded debug render:
+Single-threaded CPU debug render:
 
 ```bash
-python src/main.py --level low --no-parallel
-```
-
-4K ultra quality:
-
-```bash
-python src/main.py --level ultra
-```
-
-Custom output path:
-
-```bash
-python src/main.py --level high --output output/my_render.png
-```
-
-Fixed worker count:
-
-```bash
-python src/main.py --level med --workers 4
+python src/main.py --headless --level low --gpu false --no-parallel
 ```
 
 ## Parallelism
 
-By default, `renderer.render()` uses `multiprocessing.Pool` with `default_workers(reserve=1)` — typically **logical CPUs minus one**. The image is split into **64×64 pixel tiles**; workers return tiles that are stitched into the final buffer.
+By default, CPU rendering uses `multiprocessing.Pool` with `default_workers(reserve=1)`, which means available logical CPUs minus one. The image is split into 64x64 pixel tiles; workers return tiles that are stitched into the final buffer and can be streamed to the editor render window.
 
-Use `--no-parallel` to render sequentially (useful when debugging or under restricted environments).
-
-On Windows, the worker entry point must be import-safe; the project uses the standard `if __name__ == "__main__"` guard in `main.py`.
+Scenes using meshes, emissive materials, directional lights, depth of field, solid/environment backgrounds, or path mode automatically fall back to CPU when CUDA is requested. Environment maps can be ordinary LDR images or Radiance HDR files; path mode is intentionally basic and does not include MIS, denoising, or material/texture importance sampling.

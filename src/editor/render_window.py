@@ -11,8 +11,10 @@ except ImportError:  # pragma: no cover
 
 import numpy as np
 
+from src.raytracer.history import save_render_history
 from src.raytracer.render_control import RenderCancelled
-from src.raytracer.renderer import default_workers, render, save_png
+from src.raytracer.render_context import build_render_context
+from src.raytracer.renderer import available_cpu_count, default_workers, render, save_png
 from src.raytracer.tonemapping import tonemap_to_uint8
 from src.scene.scene import Scene
 
@@ -31,6 +33,7 @@ class RenderWindow:
         self.thread: threading.Thread | None = None
         self.preview_surface: Any | None = None
         self.buttons: dict[str, Any] = {}
+        self._lock = threading.Lock()
 
     def start(self) -> None:
         self.thread = threading.Thread(target=self._worker, name="PyTraceRender", daemon=True)
@@ -115,23 +118,50 @@ class RenderWindow:
 
     def _worker(self) -> None:
         try:
-            use_gpu = self._cuda_available() and self.use_gpu_requested
-            mode = "GPU" if use_gpu else "CPU"
-            self.status = f"Rendering on {mode}"
+            ctx = build_render_context(self.scene)
+            cuda_available = self._cuda_available()
+            use_gpu = bool(self.use_gpu_requested and cuda_available and ctx.gpu_supported)
+            cpu_workers = default_workers(reserve=1)
+            cpu_count = available_cpu_count()
+            if self.use_gpu_requested and not cuda_available:
+                self.status = f"CUDA unavailable; CPU {cpu_workers}/{cpu_count} workers"
+            elif self.use_gpu_requested and not ctx.gpu_supported:
+                reason = ctx.gpu_fallback_reason or "scene feature is CPU-only"
+                self.status = f"CPU fallback {cpu_workers}/{cpu_count}: {reason}"
+            elif use_gpu:
+                self.status = "Rendering on GPU (CUDA)"
+            else:
+                self.status = f"Rendering on CPU {cpu_workers}/{cpu_count} workers"
 
             def progress(done: int, total: int) -> None:
                 self.progress = (done, max(1, total))
 
-            self.image = render(
+            def tile_callback(tile_bounds: tuple[int, int, int, int], tile: np.ndarray) -> None:
+                x0, y0, x1, y1 = tile_bounds
+                with self._lock:
+                    if self.image is None:
+                        self.image = np.zeros(
+                            (self.scene.render.height, self.scene.render.width, 3),
+                            dtype=np.float64,
+                        )
+                    self.image[y0:y1, x0:x1] = tile
+                    self.preview_surface = None
+
+            image = render(
                 self.scene,
                 progress_callback=progress,
-                workers=default_workers(reserve=1),
-                parallel=not use_gpu,
+                workers=cpu_workers,
+                parallel=True,
                 use_gpu=use_gpu,
                 cancel_callback=lambda: self.cancel_requested,
+                tile_callback=tile_callback,
             )
+            with self._lock:
+                self.image = image
+                self.preview_surface = None
+            history_path = save_render_history(image, self.scene)
             self.progress = (1, 1)
-            self.status = "Render complete"
+            self.status = f"Render complete; added to gallery ({history_path.name})"
         except RenderCancelled:
             self.status = "Render cancelled"
         except Exception as exc:  # pragma: no cover - keeps editor alive on render errors
@@ -150,8 +180,10 @@ class RenderWindow:
     def _preview(self) -> Any:
         if pygame is None:
             raise RuntimeError("pygame is required")
-        if self.preview_surface is None and self.image is not None:
-            rgb = tonemap_to_uint8(self.image, self.scene.render.exposure)
+        with self._lock:
+            image = None if self.image is None else self.image.copy()
+        if self.preview_surface is None and image is not None:
+            rgb = tonemap_to_uint8(image, self.scene.render.exposure)
             self.preview_surface = pygame.surfarray.make_surface(rgb.swapaxes(0, 1))
         return self.preview_surface
 
@@ -193,4 +225,3 @@ class RenderWindow:
     def _draw_text(self, surface: Any, font: Any, text: str, pos: tuple[int, int], color: tuple[int, int, int, int]) -> None:
         img = font.render(text, True, color)
         surface.blit(img, pos)
-

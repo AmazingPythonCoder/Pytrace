@@ -32,3 +32,10 @@ class GlassMaterial(Material):
     roughness: float = 0.0
     absorption_color: np.ndarray = field(default_factory=lambda: np.ones(3, dtype=np.float64))
     tint: np.ndarray = field(default_factory=lambda: np.ones(3, dtype=np.float64))
+
+
+@dataclass
+class EmissiveMaterial(Material):
+    type: str = "emissive"
+    color: np.ndarray = field(default_factory=lambda: np.ones(3, dtype=np.float64))
+    strength: float = 5.0

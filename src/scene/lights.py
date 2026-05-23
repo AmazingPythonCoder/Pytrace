@@ -22,6 +22,21 @@ class PointLight(Light):
 
 
 @dataclass
+class DirectionalLight(Light):
+    type: str = "directional"
+    position: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=np.float64))
+    direction: np.ndarray = field(default_factory=lambda: np.array([-1.0, -2.0, -1.0], dtype=np.float64))
+    intensity: float = 2.0
+    name: str = "Directional Light"
+
+    def __post_init__(self) -> None:
+        d = np.asarray(self.direction, dtype=np.float64)
+        length = float(np.linalg.norm(d))
+        if length > 1e-12:
+            self.direction = d / length
+
+
+@dataclass
 class AreaLight(Light):
     """Disk area light. ``normal`` controls the disk orientation."""
 

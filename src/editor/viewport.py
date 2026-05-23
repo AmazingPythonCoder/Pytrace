@@ -27,6 +27,7 @@ try:
         GL_RGBA,
         GL_SRC_ALPHA,
         GL_TEXTURE_2D,
+        GL_TRIANGLES,
         GL_UNSIGNED_BYTE,
         glBegin,
         glBlendFunc,
@@ -55,9 +56,10 @@ except ImportError:  # pragma: no cover
     glBegin = None  # type: ignore[assignment]
 
 from src.raytracer.camera_frame import compute_camera_frame
-from src.scene.lights import AreaLight, PointLight
-from src.scene.materials import DiffuseMaterial, GlassMaterial, SpecularMaterial
-from src.scene.objects import Plane, Sphere
+from src.scene.camera import Camera
+from src.scene.lights import AreaLight, DirectionalLight, PointLight
+from src.scene.materials import DiffuseMaterial, EmissiveMaterial, GlassMaterial, SpecularMaterial
+from src.scene.objects import Mesh, Plane, Sphere
 from src.scene.scene import Scene
 
 from .layout import Rect
@@ -126,9 +128,12 @@ class Viewport:
                 self._draw_sphere(obj, selected=scene.selected is obj)
             elif isinstance(obj, Plane):
                 self._draw_plane(obj, selected=scene.selected is obj)
+            elif isinstance(obj, Mesh):
+                self._draw_mesh(obj, selected=scene.selected is obj)
         for light in scene.lights:
             self._draw_light(light, selected=scene.selected is light)
         self._draw_camera_frustum(scene, selected=scene.selected is scene.camera)
+        self._draw_transform_gizmo(scene.selected)
 
     def _draw_grid(self, size: int = 20) -> None:
         glLineWidth(1.0)
@@ -160,6 +165,8 @@ class Viewport:
             return tuple(float(v) for v in material.color)
         if isinstance(material, GlassMaterial):
             return tuple(float(v) for v in material.tint)
+        if isinstance(material, EmissiveMaterial):
+            return tuple(float(v) for v in np.clip(material.color * material.strength, 0.0, 1.0))
         return (0.7, 0.72, 0.76)
 
     def _draw_sphere(self, sphere: Sphere, selected: bool = False) -> None:
@@ -187,6 +194,21 @@ class Viewport:
         bitangent = _normalize(np.cross(n, tangent))
         return tangent, bitangent
 
+    def _rotation_matrix(self, euler_degrees: np.ndarray) -> np.ndarray:
+        rx, ry, rz = np.radians(np.asarray(euler_degrees, dtype=np.float64))
+        cx, sx = np.cos(rx), np.sin(rx)
+        cy, sy = np.cos(ry), np.sin(ry)
+        cz, sz = np.cos(rz), np.sin(rz)
+        mx = np.array([[1.0, 0.0, 0.0], [0.0, cx, -sx], [0.0, sx, cx]], dtype=np.float64)
+        my = np.array([[cy, 0.0, sy], [0.0, 1.0, 0.0], [-sy, 0.0, cy]], dtype=np.float64)
+        mz = np.array([[cz, -sz, 0.0], [sz, cz, 0.0], [0.0, 0.0, 1.0]], dtype=np.float64)
+        return mz @ my @ mx
+
+    def _mesh_world_vertices(self, mesh: Mesh) -> np.ndarray:
+        if mesh.vertices.size == 0:
+            return np.zeros((0, 3), dtype=np.float64)
+        return (mesh.vertices * mesh.scale) @ self._rotation_matrix(mesh.rotation).T + mesh.position
+
     def _draw_plane(self, plane: Plane, selected: bool = False) -> None:
         color = self._material_color(plane)
         tangent, bitangent = self._plane_basis(plane.normal)
@@ -203,13 +225,27 @@ class Viewport:
             glVertex3f(float(c[0]), float(c[1]), float(c[2]))
         glEnd()
 
-        glLineWidth(3.0 if selected else 1.0)
-        glColor4f(0.38, 0.72, 1.0, 1.0) if selected else glColor4f(0.82, 0.86, 0.92, 0.45)
-        glBegin(GL_LINES)
-        for a, b in ((0, 1), (1, 2), (2, 3), (3, 0)):
-            glVertex3f(float(corners[a][0]), float(corners[a][1]), float(corners[a][2]))
-            glVertex3f(float(corners[b][0]), float(corners[b][1]), float(corners[b][2]))
+    def _draw_mesh(self, mesh: Mesh, selected: bool = False) -> None:
+        color = self._material_color(mesh)
+        vertices = self._mesh_world_vertices(mesh)
+        glColor4f(color[0], color[1], color[2], 0.78)
+        glBegin(GL_TRIANGLES)
+        for tri in mesh.triangles:
+            for index in tri:
+                v = vertices[int(index)]
+                glVertex3f(float(v[0]), float(v[1]), float(v[2]))
         glEnd()
+
+        glLineWidth(3.0 if selected else 1.0)
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+        glColor4f(0.38, 0.72, 1.0, 1.0) if selected else glColor4f(0.82, 0.86, 0.92, 0.35)
+        glBegin(GL_TRIANGLES)
+        for tri in mesh.triangles:
+            for index in tri:
+                v = vertices[int(index)]
+                glVertex3f(float(v[0]), float(v[1]), float(v[2]))
+        glEnd()
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
 
     def _draw_light(self, light: object, selected: bool = False) -> None:
         assert self._quadric is not None
@@ -236,6 +272,16 @@ class Viewport:
             end = pos + normal * float(light.radius)
             glVertex3f(float(end[0]), float(end[1]), float(end[2]))
             glEnd()
+        elif isinstance(light, DirectionalLight):
+            direction = _normalize(light.direction)
+            glLineWidth(3.0)
+            glColor4f(float(color[0]), float(color[1]), float(color[2]), 0.9)
+            glBegin(GL_LINES)
+            start = pos - direction * 0.75
+            end = pos + direction * 0.75
+            glVertex3f(float(start[0]), float(start[1]), float(start[2]))
+            glVertex3f(float(end[0]), float(end[1]), float(end[2]))
+            glEnd()
 
     def _draw_camera_frustum(self, scene: Scene, selected: bool = False) -> None:
         cam = scene.camera
@@ -254,6 +300,33 @@ class Viewport:
         for a, b in ((ll, lr), (lr, ur), (ur, ul), (ul, ll)):
             glVertex3f(float(a[0]), float(a[1]), float(a[2]))
             glVertex3f(float(b[0]), float(b[1]), float(b[2]))
+        glEnd()
+
+    def _selected_position(self, item: object | None) -> np.ndarray | None:
+        if item is None:
+            return None
+        if hasattr(item, "position"):
+            return np.asarray(getattr(item, "position"), dtype=np.float64)
+        if isinstance(item, Camera):
+            return item.position
+        return None
+
+    def _draw_transform_gizmo(self, selected: object | None) -> None:
+        pos = self._selected_position(selected)
+        if pos is None:
+            return
+        length = 1.25
+        glLineWidth(4.0)
+        glBegin(GL_LINES)
+        glColor3f(0.95, 0.18, 0.18)
+        glVertex3f(float(pos[0]), float(pos[1]), float(pos[2]))
+        glVertex3f(float(pos[0] + length), float(pos[1]), float(pos[2]))
+        glColor3f(0.18, 0.85, 0.28)
+        glVertex3f(float(pos[0]), float(pos[1]), float(pos[2]))
+        glVertex3f(float(pos[0]), float(pos[1] + length), float(pos[2]))
+        glColor3f(0.25, 0.48, 1.0)
+        glVertex3f(float(pos[0]), float(pos[1]), float(pos[2]))
+        glVertex3f(float(pos[0]), float(pos[1]), float(pos[2] + length))
         glEnd()
 
 

@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .camera import Camera
-from .lights import AreaLight, Light
+from .lights import AreaLight, DirectionalLight, Light
 from .materials import DiffuseMaterial, GlassMaterial, SpecularMaterial
 from .objects import Plane, SceneObject, Sphere
 
@@ -18,6 +18,9 @@ class RenderConfig:
     max_bounces: int = 10
     exposure: float = 1.0
     area_light_samples: int = 4
+    render_mode: str = "direct"
+    background_mode: str = "gradient"
+    environment_path: str = ""
     background_color: np.ndarray = field(
         default_factory=lambda: np.array([0.05, 0.05, 0.08], dtype=np.float64)
     )

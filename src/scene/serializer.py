@@ -7,9 +7,9 @@ from typing import Any
 import numpy as np
 
 from .camera import Camera
-from .lights import AreaLight, Light, PointLight
-from .materials import DiffuseMaterial, GlassMaterial, Material, SpecularMaterial
-from .objects import Plane, SceneObject, Sphere
+from .lights import AreaLight, DirectionalLight, Light, PointLight
+from .materials import DiffuseMaterial, EmissiveMaterial, GlassMaterial, Material, SpecularMaterial
+from .objects import Mesh, Plane, SceneObject, Sphere
 from .scene import RenderConfig, Scene
 
 
@@ -45,6 +45,12 @@ def material_to_dict(material: Material) -> dict:
             "absorption_color": _list(material.absorption_color),
             "tint": _list(material.tint),
         }
+    if isinstance(material, EmissiveMaterial):
+        return {
+            "type": "emissive",
+            "color": _list(material.color),
+            "strength": float(material.strength),
+        }
     raise TypeError(f"unsupported material type: {type(material)!r}")
 
 
@@ -68,6 +74,11 @@ def material_from_dict(data: dict) -> Material:
             absorption_color=_array(data.get("absorption_color"), [1.0, 1.0, 1.0]),
             tint=_array(data.get("tint"), [1.0, 1.0, 1.0]),
         )
+    if material_type == "emissive":
+        return EmissiveMaterial(
+            color=_array(data.get("color"), [1.0, 1.0, 1.0]),
+            strength=float(data.get("strength", 5.0)),
+        )
     raise ValueError(f"unsupported material type: {material_type!r}")
 
 
@@ -84,6 +95,15 @@ def object_to_dict(obj: SceneObject) -> dict:
         return {"type": "sphere", **base, "radius": float(obj.radius)}
     if isinstance(obj, Plane):
         return {"type": "plane", **base, "normal": _list(obj.normal)}
+    if isinstance(obj, Mesh):
+        return {
+            "type": "mesh",
+            **base,
+            "vertices": obj.vertices.astype(float).tolist(),
+            "triangles": obj.triangles.astype(int).tolist(),
+            "normals": obj.normals.astype(float).tolist() if obj.normals is not None else None,
+            "source_path": str(obj.source_path),
+        }
     raise TypeError(f"unsupported object type: {type(obj)!r}")
 
 
@@ -101,6 +121,18 @@ def object_from_dict(data: dict) -> SceneObject:
         return Sphere(radius=float(data.get("radius", 0.5)), **base)
     if object_type == "plane":
         return Plane(normal=_array(data.get("normal"), [0.0, 1.0, 0.0]), **base)
+    if object_type == "mesh":
+        return Mesh(
+            vertices=np.asarray(data.get("vertices", []), dtype=np.float64),
+            triangles=np.asarray(data.get("triangles", []), dtype=np.int64),
+            normals=(
+                np.asarray(data["normals"], dtype=np.float64)
+                if data.get("normals") is not None
+                else None
+            ),
+            source_path=str(data.get("source_path", "")),
+            **base,
+        )
     raise ValueError(f"unsupported object type: {object_type!r}")
 
 
@@ -113,6 +145,8 @@ def light_to_dict(light: Light) -> dict:
     }
     if isinstance(light, PointLight):
         return {"type": "point", **base}
+    if isinstance(light, DirectionalLight):
+        return {"type": "directional", **base, "direction": _list(light.direction)}
     if isinstance(light, AreaLight):
         return {
             "type": "area",
@@ -133,6 +167,11 @@ def light_from_dict(data: dict) -> Light:
     }
     if light_type == "point":
         return PointLight(**base)
+    if light_type == "directional":
+        return DirectionalLight(
+            direction=_array(data.get("direction"), [-1.0, -2.0, -1.0]),
+            **base,
+        )
     if light_type == "area":
         return AreaLight(
             normal=_array(data.get("normal"), [0.0, -1.0, 0.0]),
@@ -148,6 +187,8 @@ def camera_to_dict(camera: Camera) -> dict:
         "target": _list(camera.target),
         "up": _list(camera.up),
         "fov": float(camera.fov),
+        "aperture": float(camera.aperture),
+        "focus_distance": None if camera.focus_distance is None else float(camera.focus_distance),
     }
 
 
@@ -157,6 +198,12 @@ def camera_from_dict(data: dict) -> Camera:
         target=_array(data.get("target"), [0.0, 0.0, 0.0]),
         up=_array(data.get("up"), [0.0, 1.0, 0.0]),
         fov=float(data.get("fov", 55.0)),
+        aperture=float(data.get("aperture", 0.0)),
+        focus_distance=(
+            None
+            if data.get("focus_distance") in (None, "")
+            else float(data.get("focus_distance"))
+        ),
     )
 
 
@@ -168,6 +215,9 @@ def render_config_to_dict(render: RenderConfig) -> dict:
         "max_bounces": int(render.max_bounces),
         "exposure": float(render.exposure),
         "area_light_samples": int(render.area_light_samples),
+        "render_mode": str(render.render_mode),
+        "background_mode": str(render.background_mode),
+        "environment_path": str(render.environment_path),
         "background_color": _list(render.background_color),
     }
 
@@ -180,6 +230,9 @@ def render_config_from_dict(data: dict) -> RenderConfig:
         max_bounces=int(data.get("max_bounces", 10)),
         exposure=float(data.get("exposure", 1.0)),
         area_light_samples=int(data.get("area_light_samples", 4)),
+        render_mode=str(data.get("render_mode", "direct")),
+        background_mode=str(data.get("background_mode", "gradient")),
+        environment_path=str(data.get("environment_path", "")),
         background_color=_array(data.get("background_color"), [0.05, 0.05, 0.08]),
     )
 

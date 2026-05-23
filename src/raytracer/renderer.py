@@ -16,9 +16,22 @@ from src.scene.scene import Scene
 _TILE_SIZE = 64
 
 
+def available_cpu_count() -> int:
+    """Return CPUs available to this process, falling back to the host count."""
+    process_cpu_count = getattr(os, "process_cpu_count", None)
+    if process_cpu_count is not None:
+        count = process_cpu_count()
+        if count:
+            return max(1, int(count))
+    try:
+        return max(1, len(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        return max(1, os.cpu_count() or 1)
+
+
 def default_workers(reserve: int = 1) -> int:
-    """Use all logical CPUs except ``reserve`` (keeps one core free for the OS by default)."""
-    total = os.cpu_count() or 1
+    """Use available logical CPUs minus ``reserve``."""
+    total = available_cpu_count()
     return max(1, total - reserve)
 
 
@@ -41,6 +54,13 @@ def _render_tile_args(ctx: RenderContext, x0: int, y0: int, x1: int, y1: int) ->
         cf.vertical[0],
         cf.vertical[1],
         cf.vertical[2],
+        cf.lens_u[0],
+        cf.lens_u[1],
+        cf.lens_u[2],
+        cf.lens_v[0],
+        cf.lens_v[1],
+        cf.lens_v[2],
+        cf.aperture,
         cf.inv_width,
         cf.inv_height,
         ctx.samples,
@@ -48,11 +68,15 @@ def _render_tile_args(ctx: RenderContext, x0: int, y0: int, x1: int, y1: int) ->
         ctx.area_light_samples,
         ctx.spheres,
         ctx.planes,
+        ctx.triangles,
         ctx.bvh_nodes,
         ctx.bvh_prims,
         ctx.materials,
         ctx.lights,
         ctx.background,
+        ctx.environment,
+        ctx.render_mode,
+        ctx.background_mode,
     )
 
 
@@ -76,14 +100,20 @@ def _tile_bounds(width: int, height: int, tile_size: int) -> list[tuple[int, int
     return tiles
 
 
-def _render_sequential(ctx: RenderContext, progress_callback=None, cancel_callback=None) -> np.ndarray:
+def _render_sequential(ctx: RenderContext, progress_callback=None, cancel_callback=None, tile_callback=None) -> np.ndarray:
+    tiles = _tile_bounds(ctx.width, ctx.height, _TILE_SIZE)
+    image = np.zeros((ctx.height, ctx.width, 3), dtype=np.float64)
+    for i, (x0, y0, x1, y1) in enumerate(tiles):
+        if cancel_callback and cancel_callback():
+            raise RenderCancelled()
+        tile = render_tile(*_render_tile_args(ctx, x0, y0, x1, y1))
+        image[y0:y1, x0:x1] = tile
+        if tile_callback:
+            tile_callback((x0, y0, x1, y1), tile)
+        if progress_callback:
+            progress_callback(i + 1, len(tiles))
     if cancel_callback and cancel_callback():
         raise RenderCancelled()
-    image = render_tile(*_render_tile_args(ctx, 0, 0, ctx.width, ctx.height))
-    if cancel_callback and cancel_callback():
-        raise RenderCancelled()
-    if progress_callback:
-        progress_callback(1, 1)
     return image
 
 
@@ -93,6 +123,7 @@ def _render_parallel(
     progress_callback=None,
     debug_workers: bool = False,
     cancel_callback=None,
+    tile_callback=None,
 ) -> np.ndarray:
     tiles = _tile_bounds(ctx.width, ctx.height, _TILE_SIZE)
     image = np.zeros((ctx.height, ctx.width, 3), dtype=np.float64)
@@ -110,6 +141,8 @@ def _render_parallel(
             if debug_workers and i < 3:
                 print(f"  Tile {i} done (worker returned)", flush=True)
             image[y0:y1, x0:x1] = tile
+            if tile_callback:
+                tile_callback((x0, y0, x1, y1), tile)
             if progress_callback:
                 progress_callback(i + 1, len(tiles))
         finished = True
@@ -131,11 +164,12 @@ def render(
     debug_workers: bool = False,
     use_gpu: bool = True,
     cancel_callback=None,
+    tile_callback=None,
 ) -> np.ndarray:
     """Render scene to HDR float buffer. GPU (CUDA) when use_gpu else CPU tiles."""
     ctx = build_render_context(scene)
 
-    if use_gpu:
+    if use_gpu and ctx.gpu_supported:
         from src.raytracer.gpu.renderer import render_gpu
 
         return render_gpu(ctx, progress_callback=progress_callback, cancel_callback=cancel_callback)
@@ -144,8 +178,8 @@ def render(
         workers = default_workers(reserve=1)
 
     if parallel and workers > 1:
-        return _render_parallel(ctx, workers, progress_callback, debug_workers, cancel_callback)
-    return _render_sequential(ctx, progress_callback, cancel_callback)
+        return _render_parallel(ctx, workers, progress_callback, debug_workers, cancel_callback, tile_callback)
+    return _render_sequential(ctx, progress_callback, cancel_callback, tile_callback)
 
 
 def save_png(image: np.ndarray, path: str | Path, exposure: float = 1.0) -> None:

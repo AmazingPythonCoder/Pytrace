@@ -11,6 +11,7 @@ from numba import njit
 PRIM_SPHERE = 0.0
 _SHADOW_TOL = 1e-6
 PRIM_PLANE = 1.0
+PRIM_TRIANGLE = 2.0
 
 _PLANE_SLAB_EPS = 1e-3
 _MAX_STACK = 64
@@ -32,6 +33,7 @@ def _expand_bounds(
 def compute_scene_bounds(
     spheres: np.ndarray,
     planes: np.ndarray,
+    triangles: np.ndarray,
     camera_pos: np.ndarray,
     padding: float = 0.15,
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -46,6 +48,11 @@ def compute_scene_bounds(
 
     for i in range(planes.shape[0]):
         _expand_bounds(bmin, bmax, (planes[i, 0], planes[i, 1], planes[i, 2]))
+
+    for i in range(triangles.shape[0]):
+        _expand_bounds(bmin, bmax, (triangles[i, 0], triangles[i, 1], triangles[i, 2]))
+        _expand_bounds(bmin, bmax, (triangles[i, 3], triangles[i, 4], triangles[i, 5]))
+        _expand_bounds(bmin, bmax, (triangles[i, 6], triangles[i, 7], triangles[i, 8]))
 
     _expand_bounds(bmin, bmax, (camera_pos[0], camera_pos[1], camera_pos[2]))
 
@@ -114,6 +121,14 @@ def plane_aabb(
     return bmin, bmax, centroid
 
 
+def triangle_aabb(triangles: np.ndarray, index: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    pts = triangles[index, 0:9].reshape((3, 3))
+    bmin = pts.min(axis=0) - 1e-6
+    bmax = pts.max(axis=0) + 1e-6
+    centroid = pts.mean(axis=0)
+    return bmin, bmax, centroid
+
+
 def _merge_aabb(bmin_a, bmax_a, bmin_b, bmax_b):
     bmin = np.minimum(bmin_a, bmin_b)
     bmax = np.maximum(bmax_a, bmax_b)
@@ -123,6 +138,7 @@ def _merge_aabb(bmin_a, bmax_a, bmin_b, bmax_b):
 def _collect_primitives(
     spheres: np.ndarray,
     planes: np.ndarray,
+    triangles: np.ndarray,
     scene_bmin: np.ndarray,
     scene_bmax: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -155,6 +171,13 @@ def _collect_primitives(
         bmaxs.append(bmax)
         cents.append(cent)
 
+    for i in range(triangles.shape[0]):
+        bmin, bmax, cent = triangle_aabb(triangles, i)
+        prims.append([PRIM_TRIANGLE, float(i)])
+        bmins.append(bmin)
+        bmaxs.append(bmax)
+        cents.append(cent)
+
     if not prims:
         return (
             np.zeros((0, 2), dtype=np.float64),
@@ -174,12 +197,13 @@ def _collect_primitives(
 def build_bvh(
     spheres: np.ndarray,
     planes: np.ndarray,
+    triangles: np.ndarray,
     camera_pos: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Build flat BVH. Returns (bvh_nodes, bvh_prims)."""
-    scene_bmin, scene_bmax = compute_scene_bounds(spheres, planes, camera_pos)
+    scene_bmin, scene_bmax = compute_scene_bounds(spheres, planes, triangles, camera_pos)
     bvh_prims, prim_bmin, prim_bmax, prim_centroid = _collect_primitives(
-        spheres, planes, scene_bmin, scene_bmax
+        spheres, planes, triangles, scene_bmin, scene_bmax
     )
 
     n = bvh_prims.shape[0]
@@ -291,6 +315,61 @@ def _plane_hit_t(
 
 
 @njit(cache=True)
+def _triangle_hit_t(
+    ox: float,
+    oy: float,
+    oz: float,
+    dx: float,
+    dy: float,
+    dz: float,
+    v0x: float,
+    v0y: float,
+    v0z: float,
+    v1x: float,
+    v1y: float,
+    v1z: float,
+    v2x: float,
+    v2y: float,
+    v2z: float,
+    t_min: float,
+    t_max: float,
+) -> float:
+    e1x = v1x - v0x
+    e1y = v1y - v0y
+    e1z = v1z - v0z
+    e2x = v2x - v0x
+    e2y = v2y - v0y
+    e2z = v2z - v0z
+
+    hx = dy * e2z - dz * e2y
+    hy = dz * e2x - dx * e2z
+    hz = dx * e2y - dy * e2x
+    a = e1x * hx + e1y * hy + e1z * hz
+    if abs(a) < 1e-8:
+        return -1.0
+
+    f = 1.0 / a
+    sx = ox - v0x
+    sy = oy - v0y
+    sz = oz - v0z
+    u = f * (sx * hx + sy * hy + sz * hz)
+    if u < 0.0 or u > 1.0:
+        return -1.0
+
+    qx = sy * e1z - sz * e1y
+    qy = sz * e1x - sx * e1z
+    qz = sx * e1y - sy * e1x
+    v = f * (dx * qx + dy * qy + dz * qz)
+    if v < 0.0 or u + v > 1.0:
+        return -1.0
+
+    t = f * (e2x * qx + e2y * qy + e2z * qz)
+    if t <= t_min or t >= t_max:
+        return -1.0
+    return t
+
+
+@njit(cache=True)
 def _aabb_hit(
     bmin_x: float,
     bmin_y: float,
@@ -342,6 +421,7 @@ def _leaf_hit_t(
     dz: float,
     spheres: np.ndarray,
     planes: np.ndarray,
+    triangles: np.ndarray,
     bvh_prims: np.ndarray,
     t_min: float,
     t_max: float,
@@ -363,19 +443,39 @@ def _leaf_hit_t(
             t_min,
             t_max,
         )
-    return _plane_hit_t(
+    if ptype < 1.5:
+        return _plane_hit_t(
+            ox,
+            oy,
+            oz,
+            dx,
+            dy,
+            dz,
+            planes[pindex, 0],
+            planes[pindex, 1],
+            planes[pindex, 2],
+            planes[pindex, 3],
+            planes[pindex, 4],
+            planes[pindex, 5],
+            t_min,
+            t_max,
+        )
+    return _triangle_hit_t(
         ox,
         oy,
         oz,
         dx,
         dy,
         dz,
-        planes[pindex, 0],
-        planes[pindex, 1],
-        planes[pindex, 2],
-        planes[pindex, 3],
-        planes[pindex, 4],
-        planes[pindex, 5],
+        triangles[pindex, 0],
+        triangles[pindex, 1],
+        triangles[pindex, 2],
+        triangles[pindex, 3],
+        triangles[pindex, 4],
+        triangles[pindex, 5],
+        triangles[pindex, 6],
+        triangles[pindex, 7],
+        triangles[pindex, 8],
         t_min,
         t_max,
     )
@@ -392,6 +492,7 @@ def _leaf_closest_hit(
     dz: float,
     spheres: np.ndarray,
     planes: np.ndarray,
+    triangles: np.ndarray,
     bvh_prims: np.ndarray,
     t_min: float,
     t_max: float,
@@ -428,19 +529,53 @@ def _leaf_closest_hit(
         nz = outward_nz if ff else -outward_nz
         return t, px, py, pz, nx, ny, nz, ff, spheres[pindex, 4]
 
-    t = _plane_hit_t(
+    if ptype < 1.5:
+        t = _plane_hit_t(
+            ox,
+            oy,
+            oz,
+            dx,
+            dy,
+            dz,
+            planes[pindex, 0],
+            planes[pindex, 1],
+            planes[pindex, 2],
+            planes[pindex, 3],
+            planes[pindex, 4],
+            planes[pindex, 5],
+            t_min,
+            t_max,
+        )
+        if t <= 0.0:
+            return -1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, False, -1.0
+        px = ox + t * dx
+        py = oy + t * dy
+        pz = oz + t * dz
+        outward_nx = planes[pindex, 3]
+        outward_ny = planes[pindex, 4]
+        outward_nz = planes[pindex, 5]
+        ff = (dx * outward_nx + dy * outward_ny + dz * outward_nz) < 0.0
+        nx = outward_nx if ff else -outward_nx
+        ny = outward_ny if ff else -outward_ny
+        nz = outward_nz if ff else -outward_nz
+        return t, px, py, pz, nx, ny, nz, ff, planes[pindex, 6]
+
+    t = _triangle_hit_t(
         ox,
         oy,
         oz,
         dx,
         dy,
         dz,
-        planes[pindex, 0],
-        planes[pindex, 1],
-        planes[pindex, 2],
-        planes[pindex, 3],
-        planes[pindex, 4],
-        planes[pindex, 5],
+        triangles[pindex, 0],
+        triangles[pindex, 1],
+        triangles[pindex, 2],
+        triangles[pindex, 3],
+        triangles[pindex, 4],
+        triangles[pindex, 5],
+        triangles[pindex, 6],
+        triangles[pindex, 7],
+        triangles[pindex, 8],
         t_min,
         t_max,
     )
@@ -449,14 +584,14 @@ def _leaf_closest_hit(
     px = ox + t * dx
     py = oy + t * dy
     pz = oz + t * dz
-    outward_nx = planes[pindex, 3]
-    outward_ny = planes[pindex, 4]
-    outward_nz = planes[pindex, 5]
+    outward_nx = triangles[pindex, 9]
+    outward_ny = triangles[pindex, 10]
+    outward_nz = triangles[pindex, 11]
     ff = (dx * outward_nx + dy * outward_ny + dz * outward_nz) < 0.0
     nx = outward_nx if ff else -outward_nx
     ny = outward_ny if ff else -outward_ny
     nz = outward_nz if ff else -outward_nz
-    return t, px, py, pz, nx, ny, nz, ff, planes[pindex, 6]
+    return t, px, py, pz, nx, ny, nz, ff, triangles[pindex, 12]
 
 
 @njit(cache=True)
@@ -469,6 +604,7 @@ def bvh_any_hit(
     dz: float,
     spheres: np.ndarray,
     planes: np.ndarray,
+    triangles: np.ndarray,
     bvh_nodes: np.ndarray,
     bvh_prims: np.ndarray,
     t_min: float,
@@ -517,6 +653,7 @@ def bvh_any_hit(
                 dz,
                 spheres,
                 planes,
+                triangles,
                 bvh_prims,
                 t_min,
                 t_max,
@@ -546,6 +683,7 @@ def bvh_find_closest_hit(
     dz: float,
     spheres: np.ndarray,
     planes: np.ndarray,
+    triangles: np.ndarray,
     bvh_nodes: np.ndarray,
     bvh_prims: np.ndarray,
     t_min: float,
@@ -597,6 +735,7 @@ def bvh_find_closest_hit(
                 dz,
                 spheres,
                 planes,
+                triangles,
                 bvh_prims,
                 t_min,
                 closest_t,

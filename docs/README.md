@@ -1,40 +1,33 @@
-# PyTrace documentation
+# PyTrace Documentation
 
-PyTrace is a Python ray tracer with a built-in showcase scene. The project is structured toward a future Blender-style editor, but **today the editor is not implemented** — the CLI runs headless renders to PNG.
+PyTrace is a Python ray tracer with a Pygame/OpenGL scene editor, JSON scene I/O, CPU tile rendering, and optional CUDA rendering for supported scenes.
 
-## Documentation index
+## Documentation Index
 
 | Document | Description |
 |----------|-------------|
-| [Getting started](getting-started.md) | Install dependencies, run your first render |
+| [Getting started](getting-started.md) | Install dependencies, open the editor, run your first render |
 | [CLI reference](cli.md) | Command-line flags, quality presets, parallelism |
 | [Architecture](architecture.md) | Modules, data flow, and project layout |
 | [Scene model](scene-model.md) | Objects, materials, lights, camera, default scene |
 | [Raytracer](raytracer.md) | Intersection, shading, sampling, tonemapping, performance |
 | [Output & gallery](output-and-gallery.md) | PNG output, render history, `gallery.html` |
 
-## Current capabilities
+## Current Capabilities
 
-- **Headless rendering** of `Scene.default()` (Cornell-style room with multiple spheres)
-- **Materials**: diffuse (with optional specular highlight), specular/mirror (roughness), glass (IOR, absorption)
-- **Geometry**: spheres and infinite planes
-- **Lighting**: point lights with inverse-square falloff and shadow rays
-- **Effects**: multi-sample anti-aliasing, recursive reflections/refraction, procedural ground checkerboard and red-sphere detail
-- **Performance**: Numba JIT for hot paths; optional multiprocessing over 64×64 tiles
-- **Output**: PNG via Pillow; optional timestamped copies under `output/history/` and a browser gallery
+- **Editor**: OpenGL viewport with orbit/pan/zoom and RMB-look fly navigation, outliner, properties panel, full-screen Add menu, transform modes, toolbar quality cycling, save/load, and live CPU tile render preview.
+- **Geometry**: spheres, planes, triangle meshes, cubes, and OBJ import.
+- **Materials**: diffuse, specular/mirror, glass, and emissive.
+- **Lighting**: point, disk area, and directional lights.
+- **Camera/rendering**: anti-aliasing, recursive reflections/refraction, depth of field, direct/basic path modes, solid/gradient/LDR+HDR environment backgrounds.
+- **Performance**: Numba JIT for hot CPU paths, multiprocessing over 64x64 tiles, and CUDA for compatible scenes.
+- **Output**: PNG via Pillow, timestamped history copies, and a browser gallery.
 
-## Planned (not in codebase yet)
-
-Design notes and a build roadmap live under [`plans/`](../plans/). That folder describes the OpenGL editor, JSON scene I/O, BVH, area lights, and other future work — see [plans/README.md](../plans/README.md).
-
-## Quick render
-
-From the project root:
+## Quick Start
 
 ```bash
 pip install -r requirements.txt
-pip install numba
 python src/main.py
 ```
 
-Default behavior renders at the **high** preset (~1920×1080, 384 samples/pixel) and writes `output/render.png`. Use `--level low` for a fast preview (~2 seconds on a typical desktop).
+Use `python src/main.py --headless --level low` for a fast PNG render without opening the editor.
