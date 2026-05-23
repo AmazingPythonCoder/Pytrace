@@ -29,9 +29,37 @@ class Scene:
     lights: list[Light] = field(default_factory=list)
     camera: Camera = field(default_factory=Camera)
     render: RenderConfig = field(default_factory=RenderConfig)
+    selected: object | None = field(default=None, repr=False, compare=False)
 
-    def add(self, obj: SceneObject) -> None:
-        self.objects.append(obj)
+    def add(self, item: SceneObject | Light) -> None:
+        if isinstance(item, SceneObject):
+            self.objects.append(item)
+        elif isinstance(item, Light):
+            self.lights.append(item)
+        else:
+            raise TypeError(f"unsupported scene item: {type(item)!r}")
+        self.selected = item
+
+    def remove(self, item: object) -> None:
+        if isinstance(item, SceneObject) and item in self.objects:
+            self.objects.remove(item)
+        elif isinstance(item, Light) and item in self.lights:
+            self.lights.remove(item)
+        else:
+            return
+        if self.selected is item:
+            self.selected = None
+
+    def to_dict(self) -> dict:
+        from .serializer import scene_to_dict
+
+        return scene_to_dict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Scene:
+        from .serializer import scene_from_dict
+
+        return scene_from_dict(data)
 
     @classmethod
     def default(cls) -> Scene:
@@ -173,6 +201,7 @@ class Scene:
         s.lights = [
             # Warm key — disk area light for soft shadows
             AreaLight(
+                name="Warm Key",
                 position=key_pos,
                 normal=key_normal,
                 radius=1.5,
@@ -181,6 +210,7 @@ class Scene:
             ),
             # Cool fill — aimed to reach left wall and back corner
             AreaLight(
+                name="Cool Fill",
                 position=fill_pos,
                 normal=fill_normal,
                 radius=1.1,
@@ -189,6 +219,7 @@ class Scene:
             ),
             # Back-corner rim — lifts dark pocket seen in the mirror
             AreaLight(
+                name="Corner Rim",
                 position=corner_pos,
                 normal=corner_normal,
                 radius=1.8,

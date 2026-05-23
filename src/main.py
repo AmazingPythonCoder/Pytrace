@@ -15,6 +15,7 @@ from numba import cuda
 
 from src.raytracer.renderer import default_workers, render, save_png
 from src.raytracer.render_context import build_render_context
+from src.scene.serializer import load_scene
 from src.scene.scene import Scene
 
 
@@ -36,6 +37,12 @@ def main() -> int:
         type=str,
         default="output/render.png",
         help="Output PNG path (relative to project root)",
+    )
+    parser.add_argument(
+        "--scene",
+        type=str,
+        default=None,
+        help="Load a serialized scene JSON path for the editor or headless render",
     )
     parser.add_argument("--width", type=int, default=None, help="Override render width")
     parser.add_argument("--height", type=int, default=None, help="Override render height")
@@ -74,10 +81,13 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if not args.headless:
-        print("Editor not implemented yet. Defaulting to --headless render.")
-
-    scene = Scene.default()
+    if args.scene:
+        scene_path = Path(args.scene)
+        if not scene_path.is_absolute():
+            scene_path = ROOT / scene_path
+        scene = load_scene(scene_path)
+    else:
+        scene = Scene.default()
 
     # Apply level preset settings
     if args.level == "low":
@@ -114,6 +124,20 @@ def main() -> int:
         scene.render.samples = args.samples
     if args.bounces is not None:
         scene.render.max_bounces = args.bounces
+
+    if not args.headless:
+        try:
+            from src.editor.app import run as run_editor
+        except Exception as exc:
+            print(f"Could not start editor: {exc}")
+            print("Install editor dependencies with: pip install -r requirements.txt")
+            return 1
+        try:
+            return run_editor(scene, use_gpu=args.gpu)
+        except RuntimeError as exc:
+            print(f"Could not start editor: {exc}")
+            print("Install editor dependencies with: pip install -r requirements.txt")
+            return 1
 
     use_gpu = args.gpu
     if use_gpu and not cuda.is_available():
@@ -165,7 +189,7 @@ def main() -> int:
     if use_gpu:
         from src.raytracer.gpu.renderer import prepare_gpu_render, render_gpu
 
-        print("Preparing CUDA kernels...")
+        print("Uploading scene to GPU...")
         ctx = build_render_context(scene)
         dev = prepare_gpu_render(ctx)
         start_time = time.time()

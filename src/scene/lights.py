@@ -11,12 +11,14 @@ class Light:
     position: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=np.float64))
     color: np.ndarray = field(default_factory=lambda: np.ones(3, dtype=np.float64))
     intensity: float = 100.0
+    name: str = "Light"
 
 
 @dataclass
 class PointLight(Light):
     type: str = "point"
     position: np.ndarray = field(default_factory=lambda: np.array([3.0, 6.0, 3.0], dtype=np.float64))
+    name: str = "Point Light"
 
 
 @dataclass
@@ -25,6 +27,7 @@ class AreaLight(Light):
 
     type: str = "area"
     position: np.ndarray = field(default_factory=lambda: np.array([5.0, 5.0, 5.0], dtype=np.float64))
+    name: str = "Area Light"
     normal: np.ndarray = field(default_factory=lambda: np.array([0.0, -1.0, 0.0], dtype=np.float64))
     radius: float = 1.0
 

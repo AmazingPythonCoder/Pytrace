@@ -1,5 +1,23 @@
 const PYTRACE_HISTORY = [
   {
+    "filename": "output/history/render_20260522_175611_ultra.png",
+    "timestamp": "2026-05-22 17:56:14",
+    "level": "ultra",
+    "width": 3840,
+    "height": 2160,
+    "samples": 768,
+    "bounces": 16
+  },
+  {
+    "filename": "output/history/render_20260522_174928_med.png",
+    "timestamp": "2026-05-22 17:49:28",
+    "level": "med",
+    "width": 1280,
+    "height": 720,
+    "samples": 128,
+    "bounces": 10
+  },
+  {
     "filename": "output/history/render_20260522_172402_high.png",
     "timestamp": "2026-05-22 17:24:03",
     "level": "high",

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 import warnings
-from dataclasses import replace
 from typing import Any, cast
 
 import numpy as np
@@ -15,12 +14,13 @@ from numba.core.errors import NumbaPerformanceWarning
 from src.raytracer.gpu.cuda_trace import trace_pixel_cuda
 from src.raytracer.gpu.device_context import DeviceRenderContext, to_device
 from src.raytracer.render_context import RenderContext
+from src.raytracer.render_control import RenderCancelled
 
 _CLEAR_BLOCK = 16
 _RENDER_BLOCK_X = 8
 _RENDER_BLOCK_Y = 8
 _RENDER_BLOCK_SAMPLES = 4
-_PROGRESS_STEPS = 20
+_PROGRESS_STEPS = 100
 _F0 = float32(0.0)
 _cuda: Any = cuda
 
@@ -173,29 +173,15 @@ def _launch(dev: DeviceRenderContext, image, sample_start: int, sample_count: in
 
 
 def prepare_gpu_render(ctx: RenderContext) -> DeviceRenderContext:
-    """Upload scene data and compile CUDA kernels before the timed render phase."""
-    dev = to_device(ctx)
-    warmup_dev = replace(
-        dev,
-        width=1,
-        height=1,
-        samples=1,
-        max_bounces=1,
-        area_light_samples=1,
-        inv_width=np.float32(1.0),
-        inv_height=np.float32(1.0),
-    )
-    image = _cuda.device_array((1, 1, 3), dtype=np.float32)
-    _clear(warmup_dev, image)
-    _launch(warmup_dev, image, 0, 1)
-    _cuda.synchronize()
-    return dev
+    """Upload scene data before the timed render phase."""
+    return to_device(ctx)
 
 
 def render_gpu(
     ctx: RenderContext,
     progress_callback=None,
     dev: DeviceRenderContext | None = None,
+    cancel_callback=None,
 ) -> np.ndarray:
     """Render on CUDA; returns host float64 HDR image (H, W, 3)."""
     if not _cuda.is_available():
@@ -215,15 +201,21 @@ def render_gpu(
         progress_callback(0, total_chunks)
 
     try:
+        if cancel_callback and cancel_callback():
+            raise RenderCancelled()
         _clear(dev, image)
         chunks_done = 0
         for sample_start in range(0, dev.samples, chunk_size):
+            if cancel_callback and cancel_callback():
+                raise RenderCancelled()
             sample_count = min(chunk_size, dev.samples - sample_start)
             _launch(dev, image, sample_start, sample_count)
             _cuda.synchronize()
             chunks_done += 1
             if progress_callback:
                 progress_callback(chunks_done, total_chunks)
+            if cancel_callback and cancel_callback():
+                raise RenderCancelled()
     except _cuda.CudaAPIError as e:
         raise RuntimeError(
             f"GPU kernel failed: {e}. Try --gpu false or update CUDA/Numba."

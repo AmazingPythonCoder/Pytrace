@@ -7,7 +7,7 @@ import math
 from src.raytracer.gpu import cuda_init  # noqa: F401
 from numba import cuda, float32
 
-from src.raytracer.gpu.cuda_bvh import direct_any_hit, direct_find_closest_hit
+from src.raytracer.gpu.cuda_bvh import bvh_any_hit, bvh_find_closest_hit
 from src.raytracer.gpu.cuda_rng import rand_float, rand_in_unit_sphere, rng_seed
 
 _F0 = float32(0.0)
@@ -114,9 +114,9 @@ def _add_point_light_contrib(
     shadow_ox = px + nx * _RAY_EPS
     shadow_oy = py + ny * _RAY_EPS
     shadow_oz = pz + nz * _RAY_EPS
-    if direct_any_hit(
+    if bvh_any_hit(
         shadow_ox, shadow_oy, shadow_oz, ldx, ldy, ldz,
-        spheres, planes,
+        spheres, planes, bvh_nodes, bvh_prims,
         _RAY_EPS, math.sqrt(dist_sq) - _RAY_EPS,
     ):
         return out_r, out_g, out_b
@@ -239,9 +239,9 @@ def trace_path(
     color_r, color_g, color_b = _F0, _F0, _F0
     th_r, th_g, th_b = _F1, _F1, _F1
     for depth in range(max_bounces + 1):
-        t, px, py, pz, nx, ny, nz, front_face, mat_idx = direct_find_closest_hit(
+        t, px, py, pz, nx, ny, nz, front_face, mat_idx = bvh_find_closest_hit(
             ray_ox, ray_oy, ray_oz, ray_dx, ray_dy, ray_dz,
-            spheres, planes, _RAY_EPS, _TMAX,
+            spheres, planes, bvh_nodes, bvh_prims, _RAY_EPS, _TMAX,
         )
         if t < _F0:
             sky_t = _F05 * (ray_dy + _F1)

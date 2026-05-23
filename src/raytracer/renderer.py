@@ -8,6 +8,7 @@ import numpy as np
 from PIL import Image
 
 from src.raytracer.render_context import RenderContext, build_render_context
+from src.raytracer.render_control import RenderCancelled
 from src.raytracer.shading import render_tile
 from src.raytracer.tonemapping import tonemap_to_uint8
 from src.scene.scene import Scene
@@ -75,8 +76,12 @@ def _tile_bounds(width: int, height: int, tile_size: int) -> list[tuple[int, int
     return tiles
 
 
-def _render_sequential(ctx: RenderContext, progress_callback=None) -> np.ndarray:
+def _render_sequential(ctx: RenderContext, progress_callback=None, cancel_callback=None) -> np.ndarray:
+    if cancel_callback and cancel_callback():
+        raise RenderCancelled()
     image = render_tile(*_render_tile_args(ctx, 0, 0, ctx.width, ctx.height))
+    if cancel_callback and cancel_callback():
+        raise RenderCancelled()
     if progress_callback:
         progress_callback(1, 1)
     return image
@@ -87,6 +92,7 @@ def _render_parallel(
     workers: int,
     progress_callback=None,
     debug_workers: bool = False,
+    cancel_callback=None,
 ) -> np.ndarray:
     tiles = _tile_bounds(ctx.width, ctx.height, _TILE_SIZE)
     image = np.zeros((ctx.height, ctx.width, 3), dtype=np.float64)
@@ -95,13 +101,24 @@ def _render_parallel(
     if debug_workers:
         print(f"Main PID: {os.getpid()}, workers={workers}, tiles={len(tiles)}", flush=True)
 
-    with mp.Pool(processes=workers) as pool:
+    pool = mp.Pool(processes=workers)
+    finished = False
+    try:
         for i, ((x0, y0, x1, y1), tile) in enumerate(pool.imap_unordered(_render_tile_worker, tasks)):
+            if cancel_callback and cancel_callback():
+                raise RenderCancelled()
             if debug_workers and i < 3:
                 print(f"  Tile {i} done (worker returned)", flush=True)
             image[y0:y1, x0:x1] = tile
             if progress_callback:
                 progress_callback(i + 1, len(tiles))
+        finished = True
+    finally:
+        if finished:
+            pool.close()
+        else:
+            pool.terminate()
+        pool.join()
 
     return image
 
@@ -113,6 +130,7 @@ def render(
     parallel: bool = True,
     debug_workers: bool = False,
     use_gpu: bool = True,
+    cancel_callback=None,
 ) -> np.ndarray:
     """Render scene to HDR float buffer. GPU (CUDA) when use_gpu else CPU tiles."""
     ctx = build_render_context(scene)
@@ -120,14 +138,14 @@ def render(
     if use_gpu:
         from src.raytracer.gpu.renderer import render_gpu
 
-        return render_gpu(ctx, progress_callback=progress_callback)
+        return render_gpu(ctx, progress_callback=progress_callback, cancel_callback=cancel_callback)
 
     if workers is None:
         workers = default_workers(reserve=1)
 
     if parallel and workers > 1:
-        return _render_parallel(ctx, workers, progress_callback, debug_workers)
-    return _render_sequential(ctx, progress_callback)
+        return _render_parallel(ctx, workers, progress_callback, debug_workers, cancel_callback)
+    return _render_sequential(ctx, progress_callback, cancel_callback)
 
 
 def save_png(image: np.ndarray, path: str | Path, exposure: float = 1.0) -> None:
