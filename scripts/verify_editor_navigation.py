@@ -11,7 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.editor.app import _apply_quality_preset, _next_quality, _quality_for_scene
-from src.editor.add_menu import ENTRIES
+from src.editor.add_actions import ENTRIES
+from src.editor.gizmos import TransformController
 from src.editor.orbit_camera import OrbitCamera
 from src.scene.scene import Scene
 
@@ -59,7 +60,16 @@ def main() -> None:
         "add_area_light",
     }.issubset(actions)
 
-    print("Editor navigation OK: viewport, quality cycling, and add menu entries verified")
+    transforms = TransformController()
+    scene.selected = scene.objects[0]
+    assert transforms.handle_command("g", scene, (0, 0))
+    assert transforms.mode == "move"
+    assert transforms.handle_command("x", scene, (0, 0))
+    assert transforms.axis == "X"
+    assert transforms.handle_command("escape", scene, (0, 0))
+    assert transforms.mode is None
+
+    print("Editor navigation OK: viewport, quality cycling, add entries, and transform state verified")
 
 
 if __name__ == "__main__":

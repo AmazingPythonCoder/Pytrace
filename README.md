@@ -1,6 +1,6 @@
 # PyTrace
 
-A Python path tracer with a Pygame/OpenGL scene editor. Build scenes interactively, save/load JSON, then render with CPU tiles or CUDA when the current scene uses GPU-supported features.
+A Python path tracer with an imgui-bundle/GLFW/OpenGL scene editor. Build scenes interactively, save/load JSON, then render with CPU tiles or CUDA when the current scene uses GPU-supported features.
 
 ## Quick Start
 
@@ -23,9 +23,9 @@ python src/main.py --headless --scene scenes/cornell_box.json --gpu false
 
 ### Editor
 
-- Real-time OpenGL viewport with orbit, pan, zoom, RMB-look WASD/QE fly navigation, grid, preview geometry, lights, camera frustum, selection outlines, and visible transform axes.
+- Docked imgui-bundle editor with a real-time OpenGL viewport, orbit, pan, zoom, RMB-look WASD/QE fly navigation, grid, preview geometry, lights, camera frustum, selection outlines, and ImGuizmo transform handles.
 - Outliner and properties panels for objects, lights, camera, materials, render settings, depth of field, background mode, and environment path.
-- Full-screen Add menu for spheres, planes, cubes, point lights, directional lights, area lights, and OBJ import.
+- Add modal/menu for spheres, planes, cubes, point lights, directional lights, area lights, and OBJ import.
 - Selection from the viewport or outliner, `G`/`R`/`S` transform modes with optional `X/Y/Z` constraints, `X`/Delete removal, `Ctrl+S`/`Ctrl+O` scene save/load, toolbar quality cycling, and `F12` rendering.
 - Render overlay with cancel/save controls and live CPU tile preview.
 
@@ -87,7 +87,7 @@ src/
   main.py              CLI/editor entry
   math/vec3.py         3D vector helpers
   scene/               Scene, camera, materials, objects, lights, JSON serializer
-  editor/              Pygame/OpenGL viewport and UI panels
+  editor/              imgui-bundle editor, docked UI, OpenGL preview renderer
   raytracer/           Camera frame, intersections, shading, renderer, BVH, CUDA backend
 scripts/               Verification and benchmark helpers
 scenes/                Example scene JSON files

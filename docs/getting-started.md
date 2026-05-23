@@ -3,7 +3,7 @@
 ## Requirements
 
 - Python 3.10+.
-- Dependencies listed in `requirements.txt`, including numpy, Pillow/imageio, pygame, PyOpenGL, and the CUDA/Numba stack used by the renderer.
+- Dependencies listed in `requirements.txt`, including numpy, Pillow/imageio, imgui-bundle, PyOpenGL, and the CUDA/Numba stack used by the renderer.
 
 ## Install
 
@@ -18,7 +18,7 @@ pip install -r requirements.txt
 python src/main.py
 ```
 
-The editor opens with the default scene. Use the viewport to orbit/pan/zoom, hold right mouse and use `W/A/S/D` plus `Q/E` to fly around, select from the viewport or outliner, edit properties, open the full-screen Add menu for objects/lights, cycle render quality from the toolbar, save/load JSON, and press `F12` to render.
+The editor opens with the default scene. Use the viewport to orbit/pan/zoom, hold right mouse and use `W/A/S/D` plus `Q/E` to fly around, select from the viewport or outliner, edit properties, open the Add menu for objects/lights, cycle render quality from the toolbar, save/load JSON, and press `F12` to render.
 
 ## First Headless Render
 

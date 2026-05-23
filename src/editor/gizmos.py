@@ -5,10 +5,7 @@ from typing import Any
 
 import numpy as np
 
-try:
-    import pygame
-except ImportError:  # pragma: no cover
-    pygame = None  # type: ignore[assignment]
+pygame = None  # Legacy Pygame event handlers below are kept as no-op compatibility shims.
 
 from src.scene.camera import Camera
 from src.scene.lights import AreaLight, DirectionalLight, Light
@@ -116,11 +113,11 @@ class TransformController:
             self._rotate(dx, dy)
         return True
 
-    def begin(self, mode: str, item: object) -> None:
+    def begin(self, mode: str, item: object, mouse_pos: tuple[int, int] | None = None) -> None:
         self.mode = mode
         self.axis = None
         self.item = item
-        self.last_mouse = pygame.mouse.get_pos() if pygame is not None else None
+        self.last_mouse = mouse_pos if mouse_pos is not None else (pygame.mouse.get_pos() if pygame is not None else None)
         self.snapshot = self._snapshot(item)
 
     def confirm(self) -> None:
@@ -134,6 +131,65 @@ class TransformController:
         if self.item is not None:
             self._restore(self.item, self.snapshot)
         self.confirm()
+
+    def handle_command(self, command: str, scene: Scene, mouse_pos: tuple[int, int] | None = None) -> bool:
+        """Backend-neutral keyboard command handler used by the ImGui editor."""
+        key = command.lower()
+        if self.mode is None:
+            if scene.selected is None:
+                return False
+            if key == "g":
+                self.begin("move", scene.selected, mouse_pos)
+                return True
+            if key == "s":
+                self.begin("scale", scene.selected, mouse_pos)
+                return True
+            if key == "r":
+                self.begin("rotate", scene.selected, mouse_pos)
+                return True
+            return False
+
+        if key in {"x", "y", "z"}:
+            self.axis = key.upper()
+            return True
+        if key in {"enter", "return"}:
+            self.confirm()
+            return True
+        if key in {"escape", "esc"}:
+            self.cancel()
+            return True
+        return False
+
+    def pick_axis_at(
+        self,
+        mouse_pos: tuple[int, int],
+        scene: Scene,
+        orbit_camera: OrbitCamera,
+        viewport: Rect,
+    ) -> str | None:
+        if self.mode is not None or scene.selected is None:
+            return None
+        position = self._item_position(scene.selected)
+        if position is None:
+            return None
+        return self._pick_axis(mouse_pos, position, orbit_camera, viewport)
+
+    def drag(self, mouse_pos: tuple[int, int], orbit_camera: OrbitCamera) -> bool:
+        if self.mode is None:
+            return False
+        if self.last_mouse is None:
+            self.last_mouse = mouse_pos
+            return True
+        dx = mouse_pos[0] - self.last_mouse[0]
+        dy = mouse_pos[1] - self.last_mouse[1]
+        self.last_mouse = mouse_pos
+        if self.mode == "move":
+            self._move(dx, dy, orbit_camera)
+        elif self.mode == "scale":
+            self._scale(dx, dy, orbit_camera)
+        elif self.mode == "rotate":
+            self._rotate(dx, dy)
+        return True
 
     def _snapshot(self, item: object) -> _Snapshot:
         snap = _Snapshot()

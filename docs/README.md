@@ -1,6 +1,6 @@
 # PyTrace Documentation
 
-PyTrace is a Python ray tracer with a Pygame/OpenGL scene editor, JSON scene I/O, CPU tile rendering, and optional CUDA rendering for supported scenes.
+PyTrace is a Python ray tracer with an imgui-bundle/GLFW/OpenGL scene editor, JSON scene I/O, CPU tile rendering, and optional CUDA rendering for supported scenes.
 
 ## Documentation Index
 
@@ -15,7 +15,7 @@ PyTrace is a Python ray tracer with a Pygame/OpenGL scene editor, JSON scene I/O
 
 ## Current Capabilities
 
-- **Editor**: OpenGL viewport with orbit/pan/zoom and RMB-look fly navigation, outliner, properties panel, full-screen Add menu, transform modes, toolbar quality cycling, save/load, and live CPU tile render preview.
+- **Editor**: docked imgui-bundle UI with OpenGL viewport, orbit/pan/zoom and RMB-look fly navigation, outliner, properties panel, Add menu/modal, ImGuizmo/keyboard transform modes, toolbar quality cycling, save/load, and live CPU tile render preview.
 - **Geometry**: spheres, planes, triangle meshes, cubes, and OBJ import.
 - **Materials**: diffuse, specular/mirror, glass, and emissive.
 - **Lighting**: point, disk area, and directional lights.

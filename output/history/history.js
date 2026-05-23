@@ -1,5 +1,59 @@
 const PYTRACE_HISTORY = [
   {
+    "filename": "output/history/render_20260523_125202_med.png",
+    "timestamp": "2026-05-23 12:52:02",
+    "level": "med",
+    "width": 32,
+    "height": 18,
+    "samples": 1,
+    "bounces": 1
+  },
+  {
+    "filename": "output/history/render_20260523_123700_low.png",
+    "timestamp": "2026-05-23 12:37:00",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
+    "filename": "output/history/render_20260523_123652_low.png",
+    "timestamp": "2026-05-23 12:36:52",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
+    "filename": "output/history/render_20260523_123630_low.png",
+    "timestamp": "2026-05-23 12:36:30",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
+    "filename": "output/history/render_20260523_123420_low.png",
+    "timestamp": "2026-05-23 12:34:20",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
+    "filename": "output/history/render_20260523_123411_low.png",
+    "timestamp": "2026-05-23 12:34:11",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
     "filename": "output/history/render_20260523_123103_low.png",
     "timestamp": "2026-05-23 12:31:03",
     "level": "low",
