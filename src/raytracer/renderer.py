@@ -47,6 +47,8 @@ def _render_tile_args(ctx: RenderContext, x0: int, y0: int, x1: int, y1: int) ->
         ctx.area_light_samples,
         ctx.spheres,
         ctx.planes,
+        ctx.bvh_nodes,
+        ctx.bvh_prims,
         ctx.materials,
         ctx.lights,
         ctx.background,
@@ -110,9 +112,15 @@ def render(
     workers: int | None = None,
     parallel: bool = True,
     debug_workers: bool = False,
+    use_gpu: bool = True,
 ) -> np.ndarray:
-    """Render scene to HDR float buffer. Uses multiprocessing by default on Windows/Linux."""
+    """Render scene to HDR float buffer. GPU (CUDA) when use_gpu else CPU tiles."""
     ctx = build_render_context(scene)
+
+    if use_gpu:
+        from src.raytracer.gpu.renderer import render_gpu
+
+        return render_gpu(ctx, progress_callback=progress_callback)
 
     if workers is None:
         workers = default_workers(reserve=1)

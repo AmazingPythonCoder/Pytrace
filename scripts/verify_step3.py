@@ -22,7 +22,7 @@ def main() -> None:
     scene.render.samples = 4
     scene.render.max_bounces = 6
 
-    image = render(scene)
+    image = render(scene, use_gpu=False)
     assert image.shape == (36, 64, 3)
     assert float(image.max()) > 0.0
 

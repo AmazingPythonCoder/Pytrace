@@ -18,7 +18,7 @@ Entry point: `python src/main.py`
 | `--height N` | *(preset)* | Override image height |
 | `--samples N` | *(preset)* | Samples per pixel (anti-aliasing) |
 | `--bounces N` | *(preset)* | Maximum ray recursion depth |
-| `--level {low,med,high}` | `high` | Quality preset (see below) |
+| `--level {low,med,high,ultra}` | `high` | Quality preset (see below) |
 | `--workers N` | CPU count − 1 | Worker processes for tile rendering |
 | `--no-parallel` | off | Force single-threaded render (debugging) |
 | `--debug-workers` | off | Print main PID and tile-completion hints |
@@ -32,6 +32,7 @@ CLI overrides apply **after** the level preset is applied.
 | `low` | 800 | 450 | 32 | 8 |
 | `med` | 1280 | 720 | 128 | 10 |
 | `high` | 1920 | 1080 | 384 | 12 |
+| `ultra` | 3840 | 2160 | 768 | 16 |
 
 ## Examples
 
@@ -51,6 +52,12 @@ Single-threaded debug render:
 
 ```bash
 python src/main.py --level low --no-parallel
+```
+
+4K ultra quality:
+
+```bash
+python src/main.py --level ultra
 ```
 
 Custom output path:

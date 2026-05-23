@@ -11,7 +11,7 @@ pip install numpy Pillow numba
 python src/main.py --headless
 ```
 
-The image is written to `output/render.png`. Use `--level low|med|high` for resolution and sample presets, or override with `--width`, `--height`, `--samples`, and `--bounces`.
+The image is written to `output/render.png`. Use `--level low|med|high|ultra` for resolution and sample presets, or override with `--width`, `--height`, `--samples`, and `--bounces`.
 
 Example:
 
@@ -80,7 +80,29 @@ Scenes are defined in code (dataclasses); there is no file loader or editor UI y
 
 ### Performance
 
-Hot paths (`intersect`, `shading`, `vec3`, sampling) are compiled with **Numba** (`@njit`). The first run pays a JIT warmup cost; later tiles and runs are faster.
+Hot paths (`intersect`, `shading`, `vec3`, sampling`) are compiled with **Numba** (`@njit`). The first run pays a JIT warmup cost; later tiles and runs are faster.
+
+Intersection uses a **BVH** over all primitives (spheres and room planes with conservative finite bounds). Build time is once per render in `build_render_context`; traversal is in `src/raytracer/bvh.py`.
+
+**GPU (default):** Renders use **CUDA** via Numba when a GPU is available (`src/raytracer/gpu/`). Requires an NVIDIA GPU, driver, and CUDA toolkit so this succeeds:
+
+```bash
+python -c "from numba import cuda; print(cuda.is_available())"
+```
+
+Use **`--gpu false`** for the original CPU tile renderer (multiprocessing). The first GPU run compiles CUDA kernels and may take extra time.
+
+```bash
+python src/main.py --headless --level low
+python src/main.py --headless --level low --gpu false
+python scripts/verify_gpu.py
+```
+
+Benchmark (CPU, after warmup):
+
+```bash
+python scripts/bench_render.py
+```
 
 ### Project layout (implementation)
 
@@ -89,7 +111,7 @@ src/
   main.py              CLI entry (--headless)
   math/vec3.py         3D vector helpers (Numba)
   scene/               Scene, camera, materials, objects, lights
-  raytracer/           Camera frame, intersection, shading, renderer, tone mapping
+  raytracer/           Camera frame, intersection, shading, renderer, BVH, gpu/
 scripts/               verify_step1.py … verify_step3.py
 output/                Renders and history/
 gallery.html           Browser gallery for render history
@@ -101,10 +123,11 @@ gallery.html           Browser gallery for render history
 |------|---------|
 | `--headless` | Render to PNG (implicit; editor falls back to this) |
 | `--output PATH` | PNG path (default `output/render.png`) |
-| `--level low\|med\|high` | Presets: 800×450 / 32 spp, 1280×720 / 128 spp, 1920×1080 / 384 spp |
+| `--level low\|med\|high\|ultra` | Presets: 800×450 / 32 spp, 1280×720 / 128 spp, 1920×1080 / 384 spp, 3840×2160 / 768 spp |
 | `--width`, `--height`, `--samples`, `--bounces` | Override preset values |
-| `--workers N` | Process pool size |
-| `--no-parallel` | Single-threaded render |
+| `--gpu [BOOL]` | Use CUDA when available (default: true). `--gpu false` for CPU |
+| `--workers N` | Process pool size (CPU only) |
+| `--no-parallel` | Single-threaded CPU render |
 | `--debug-workers` | Print worker PIDs and tile completion hints |
 
 ## Not implemented yet

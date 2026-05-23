@@ -1,5 +1,131 @@
 const PYTRACE_HISTORY = [
   {
+    "filename": "output/history/render_20260522_172402_high.png",
+    "timestamp": "2026-05-22 17:24:03",
+    "level": "high",
+    "width": 1920,
+    "height": 1080,
+    "samples": 384,
+    "bounces": 12
+  },
+  {
+    "filename": "output/history/render_20260522_172245_high.png",
+    "timestamp": "2026-05-22 17:22:46",
+    "level": "high",
+    "width": 1920,
+    "height": 1080,
+    "samples": 384,
+    "bounces": 12
+  },
+  {
+    "filename": "output/history/render_20260522_172108_high.png",
+    "timestamp": "2026-05-22 17:21:09",
+    "level": "high",
+    "width": 1920,
+    "height": 1080,
+    "samples": 384,
+    "bounces": 12
+  },
+  {
+    "filename": "output/history/render_20260522_172015_med.png",
+    "timestamp": "2026-05-22 17:20:15",
+    "level": "med",
+    "width": 1280,
+    "height": 720,
+    "samples": 128,
+    "bounces": 10
+  },
+  {
+    "filename": "output/history/render_20260522_171744_ultra.png",
+    "timestamp": "2026-05-22 17:17:46",
+    "level": "ultra",
+    "width": 3840,
+    "height": 2160,
+    "samples": 768,
+    "bounces": 16
+  },
+  {
+    "filename": "output/history/render_20260521_213119_high.png",
+    "timestamp": "2026-05-21 21:31:20",
+    "level": "high",
+    "width": 1920,
+    "height": 1080,
+    "samples": 384,
+    "bounces": 12
+  },
+  {
+    "filename": "output/history/render_20260521_212654_high.png",
+    "timestamp": "2026-05-21 21:26:55",
+    "level": "high",
+    "width": 1920,
+    "height": 1080,
+    "samples": 384,
+    "bounces": 12
+  },
+  {
+    "filename": "output/history/render_20260521_212504_med.png",
+    "timestamp": "2026-05-21 21:25:04",
+    "level": "med",
+    "width": 1280,
+    "height": 720,
+    "samples": 128,
+    "bounces": 10
+  },
+  {
+    "filename": "output/history/render_20260521_211112_high.png",
+    "timestamp": "2026-05-21 21:11:13",
+    "level": "high",
+    "width": 1920,
+    "height": 1080,
+    "samples": 384,
+    "bounces": 12
+  },
+  {
+    "filename": "output/history/render_20260521_210850_med.png",
+    "timestamp": "2026-05-21 21:08:50",
+    "level": "med",
+    "width": 1280,
+    "height": 720,
+    "samples": 128,
+    "bounces": 10
+  },
+  {
+    "filename": "output/history/render_20260521_202650_low.png",
+    "timestamp": "2026-05-21 20:26:50",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
+    "filename": "output/history/render_20260521_195227_low.png",
+    "timestamp": "2026-05-21 19:52:27",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
+    "filename": "output/history/render_20260521_194225_low.png",
+    "timestamp": "2026-05-21 19:42:25",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
+    "filename": "output/history/render_20260521_193147_ultra.png",
+    "timestamp": "2026-05-21 19:31:48",
+    "level": "ultra",
+    "width": 3840,
+    "height": 2160,
+    "samples": 768,
+    "bounces": 16
+  },
+  {
     "filename": "output/history/render_20260521_175305_low.png",
     "timestamp": "2026-05-21 17:53:05",
     "level": "low",

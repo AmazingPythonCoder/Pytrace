@@ -10,8 +10,18 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from src.raytracer.gpu import cuda_init  # noqa: F401
+from numba import cuda
+
 from src.raytracer.renderer import default_workers, render, save_png
+from src.raytracer.render_context import build_render_context
 from src.scene.scene import Scene
+
+
+def _parse_bool_arg(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).lower() in ("1", "true", "yes", "on")
 
 
 def main() -> int:
@@ -33,9 +43,9 @@ def main() -> int:
     parser.add_argument("--bounces", type=int, default=None, help="Max ray bounces")
     parser.add_argument(
         "--level",
-        choices=["low", "med", "high"],
+        choices=["low", "med", "high", "ultra"],
         default="med",
-        help="Rendering level preset: low (800x450, 32 spp), med (1280x720, 128 spp), high (1920x1080, 384 spp) (default: high)",
+        help="Rendering level preset: low (800x450, 32 spp), med (1280x720, 128 spp), high (1920x1080, 384 spp), ultra (3840x2160, 768 spp) (default: med)",
     )
     parser.add_argument(
         "--workers",
@@ -52,6 +62,15 @@ def main() -> int:
         "--debug-workers",
         action="store_true",
         help="Print main PID and tile completion hints",
+    )
+    parser.add_argument(
+        "--gpu",
+        nargs="?",
+        const=True,
+        default=True,
+        type=_parse_bool_arg,
+        metavar="BOOL",
+        help="Use CUDA GPU when available (default: true). Use --gpu false for CPU.",
     )
     args = parser.parse_args()
 
@@ -79,6 +98,12 @@ def main() -> int:
         scene.render.height = 1080
         scene.render.samples = 384
         scene.render.max_bounces = 12
+    elif args.level == "ultra":
+        # 4K UHD — ~8x ray budget vs high (4x pixels, 2x spp, deeper paths)
+        scene.render.width = 3840
+        scene.render.height = 2160
+        scene.render.samples = 768
+        scene.render.max_bounces = 16
 
     # Command line overrides
     if args.width is not None:
@@ -90,9 +115,16 @@ def main() -> int:
     if args.bounces is not None:
         scene.render.max_bounces = args.bounces
 
+    use_gpu = args.gpu
+    if use_gpu and not cuda.is_available():
+        print("Warning: --gpu requested but CUDA is not available; using CPU.")
+        use_gpu = False
+
     workers = args.workers
     parallel = not args.no_parallel
-    if parallel and workers is None:
+    if use_gpu:
+        parallel = False
+    elif parallel and workers is None:
         workers = default_workers(reserve=1)
 
     out_path = ROOT / args.output
@@ -122,18 +154,31 @@ def main() -> int:
 
         print(f"\r[{bar}] {int(pct * 100)}% eta {fmt_time(eta)} elapsed {fmt_time(elapsed)}     ", end="", flush=True)
 
-    mode = f"{workers} workers" if parallel and workers and workers > 1 else "1 thread"
+    if use_gpu:
+        mode = "GPU (CUDA)"
+    else:
+        mode = f"{workers} workers" if parallel and workers and workers > 1 else "1 thread"
     print(
         f"Rendering {scene.render.width}x{scene.render.height} "
         f"({scene.render.samples} spp, {mode}) ..."
     )
-    image = render(
-        scene,
-        progress_callback=progress,
-        workers=workers,
-        parallel=parallel,
-        debug_workers=args.debug_workers,
-    )
+    if use_gpu:
+        from src.raytracer.gpu.renderer import prepare_gpu_render, render_gpu
+
+        print("Preparing CUDA kernels...")
+        ctx = build_render_context(scene)
+        dev = prepare_gpu_render(ctx)
+        start_time = time.time()
+        image = render_gpu(ctx, progress_callback=progress, dev=dev)
+    else:
+        image = render(
+            scene,
+            progress_callback=progress,
+            workers=workers,
+            parallel=parallel,
+            debug_workers=args.debug_workers,
+            use_gpu=False,
+        )
     print()
     save_png(image, out_path, exposure=scene.render.exposure)
     print(f"Wrote {out_path}")

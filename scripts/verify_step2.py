@@ -17,7 +17,7 @@ def main() -> None:
     scene.render.width = 64
     scene.render.height = 36
 
-    image = render(scene)
+    image = render(scene, use_gpu=False)
     assert image.shape == (36, 64, 3)
     assert float(image.max()) > 0.0
 

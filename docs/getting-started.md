@@ -51,6 +51,7 @@ Approximate targets (machine-dependent):
 | `low`  | 800×450    | 32         | 8           | ~2 s         |
 | `med`  | 1280×720   | 128        | 10          | ~30 s        |
 | `high` | 1920×1080  | 384        | 12          | ~2 min       |
+| `ultra` | 3840×2160 | 768        | 16          | ~15–30 min   |
 
 ## View render history
 

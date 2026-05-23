@@ -80,6 +80,7 @@ def _add_point_light_contrib(
     lr: float, lg: float, lb: float,
     intensity: float,
     spheres: np.ndarray, planes: np.ndarray,
+    bvh_nodes: np.ndarray, bvh_prims: np.ndarray,
     out_r: float, out_g: float, out_b: float,
     weight: float = 1.0,
 ) -> tuple[float, float, float]:
@@ -103,7 +104,8 @@ def _add_point_light_contrib(
     if any_hit(
         shadow_ox, shadow_oy, shadow_oz,
         ldx, ldy, ldz,
-        spheres, planes, 1e-4, math.sqrt(dist_sq) - 1e-4,
+        spheres, planes, bvh_nodes, bvh_prims,
+        1e-4, math.sqrt(dist_sq) - 1e-4,
     ):
         return out_r, out_g, out_b
 
@@ -142,7 +144,9 @@ def _shade_diffuse(
     nx: float, ny: float, nz: float,
     mat_idx: float,
     ray_dx: float, ray_dy: float, ray_dz: float,
-    spheres: np.ndarray, planes: np.ndarray, materials: np.ndarray, lights: np.ndarray,
+    spheres: np.ndarray, planes: np.ndarray,
+    bvh_nodes: np.ndarray, bvh_prims: np.ndarray,
+    materials: np.ndarray, lights: np.ndarray,
     area_light_samples: int,
 ):
     idx = int(mat_idx)
@@ -198,7 +202,7 @@ def _shade_diffuse(
                 lights[i, 1], lights[i, 2], lights[i, 3],
                 lights[i, 4], lights[i, 5], lights[i, 6],
                 lights[i, 7],
-                spheres, planes, out_r, out_g, out_b,
+                spheres, planes, bvh_nodes, bvh_prims, out_r, out_g, out_b,
             )
         else:
             cx, cy, cz = lights[i, 1], lights[i, 2], lights[i, 3]
@@ -214,7 +218,7 @@ def _shade_diffuse(
                     color_r, color_g, color_b, roughness,
                     ray_dx, ray_dy, ray_dz,
                     lx, ly, lz, lr, lg, lb, sample_intensity,
-                    spheres, planes, out_r, out_g, out_b,
+                    spheres, planes, bvh_nodes, bvh_prims, out_r, out_g, out_b,
                 )
 
     t = 0.5 * (ny + 1.0)
@@ -232,7 +236,9 @@ def _shade_diffuse(
 def trace(
     ray_ox: float, ray_oy: float, ray_oz: float,
     ray_dx: float, ray_dy: float, ray_dz: float,
-    spheres: np.ndarray, planes: np.ndarray, materials: np.ndarray, lights: np.ndarray,
+    spheres: np.ndarray, planes: np.ndarray,
+    bvh_nodes: np.ndarray, bvh_prims: np.ndarray,
+    materials: np.ndarray, lights: np.ndarray,
     background: np.ndarray, max_bounces: int, area_light_samples: int,
 ) -> tuple[float, float, float]:
     
@@ -243,7 +249,7 @@ def trace(
         hit = find_closest_hit(
             ray_ox, ray_oy, ray_oz,
             ray_dx, ray_dy, ray_dz,
-            spheres, planes, 1e-4, 1e9,
+            spheres, planes, bvh_nodes, bvh_prims, 1e-4, 1e9,
         )
         
         t, px, py, pz, nx, ny, nz, front_face, mat_idx = hit
@@ -266,7 +272,8 @@ def trace(
             dr, dg, db = _shade_diffuse(
                 px, py, pz, nx, ny, nz, mat_idx,
                 ray_dx, ray_dy, ray_dz,
-                spheres, planes, materials, lights, area_light_samples,
+                spheres, planes, bvh_nodes, bvh_prims,
+                materials, lights, area_light_samples,
             )
             color_r += th_r * dr
             color_g += th_g * dg
@@ -397,6 +404,8 @@ def trace_pixel(
     area_light_samples: int,
     spheres: np.ndarray,
     planes: np.ndarray,
+    bvh_nodes: np.ndarray,
+    bvh_prims: np.ndarray,
     materials: np.ndarray,
     lights: np.ndarray,
     background: np.ndarray,
@@ -430,6 +439,8 @@ def trace_pixel(
             dz,
             spheres,
             planes,
+            bvh_nodes,
+            bvh_prims,
             materials,
             lights,
             background,
@@ -468,6 +479,8 @@ def render_tile(
     area_light_samples: int,
     spheres: np.ndarray,
     planes: np.ndarray,
+    bvh_nodes: np.ndarray,
+    bvh_prims: np.ndarray,
     materials: np.ndarray,
     lights: np.ndarray,
     background: np.ndarray,
@@ -502,6 +515,8 @@ def render_tile(
                 area_light_samples,
                 spheres,
                 planes,
+                bvh_nodes,
+                bvh_prims,
                 materials,
                 lights,
                 background,

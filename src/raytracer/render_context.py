@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from src.raytracer.bvh import build_bvh
 from src.raytracer.camera_frame import CameraFrame, compute_camera_frame
 from src.scene.scene import Scene
 
@@ -33,6 +34,8 @@ class RenderContext:
     planes: np.ndarray   # (N, 7) -> [px, py, pz, nx, ny, nz, mat_idx]
     materials: np.ndarray # (N, 9) -> [type, r, g, b, roughness, ior, abs_r, abs_g, abs_b]
     lights: np.ndarray    # (N, 12) — see layout above
+    bvh_nodes: np.ndarray  # (num_nodes, 8) bbox + child indices (negative left = leaf)
+    bvh_prims: np.ndarray  # (num_prims, 2) type, index into spheres/planes
 
 
 def build_render_context(scene: Scene) -> RenderContext:
@@ -113,6 +116,8 @@ def build_render_context(scene: Scene) -> RenderContext:
             )
     lights_arr = np.array(lights, dtype=np.float64) if lights else np.zeros((0, 12), dtype=np.float64)
 
+    bvh_nodes, bvh_prims = build_bvh(spheres_arr, planes_arr, cam.position)
+
     return RenderContext(
         width=w,
         height=h,
@@ -127,4 +132,6 @@ def build_render_context(scene: Scene) -> RenderContext:
         planes=planes_arr,
         materials=mat_arr,
         lights=lights_arr,
+        bvh_nodes=bvh_nodes,
+        bvh_prims=bvh_prims,
     )
