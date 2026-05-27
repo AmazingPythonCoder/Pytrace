@@ -165,6 +165,7 @@ def render(
     use_gpu: bool = True,
     cancel_callback=None,
     tile_callback=None,
+    preview_callback=None,
 ) -> np.ndarray:
     """Render scene to HDR float buffer. GPU (CUDA) when use_gpu else CPU tiles."""
     ctx = build_render_context(scene)
@@ -172,7 +173,12 @@ def render(
     if use_gpu and ctx.gpu_supported:
         from src.raytracer.gpu.renderer import render_gpu
 
-        return render_gpu(ctx, progress_callback=progress_callback, cancel_callback=cancel_callback)
+        return render_gpu(
+            ctx,
+            progress_callback=progress_callback,
+            cancel_callback=cancel_callback,
+            preview_callback=preview_callback,
+        )
 
     if workers is None:
         workers = default_workers(reserve=1)

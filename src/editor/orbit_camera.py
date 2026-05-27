@@ -23,11 +23,14 @@ class OrbitCamera:
 
     @property
     def eye(self) -> np.ndarray:
+        return self.target + self._eye_offset()
+
+    def _eye_offset(self) -> np.ndarray:
         yaw = math.radians(self.yaw)
         pitch = math.radians(self.pitch)
-        x = self.target[0] + self.distance * math.cos(pitch) * math.sin(yaw)
-        y = self.target[1] + self.distance * math.sin(pitch)
-        z = self.target[2] + self.distance * math.cos(pitch) * math.cos(yaw)
+        x = self.distance * math.cos(pitch) * math.sin(yaw)
+        y = self.distance * math.sin(pitch)
+        z = self.distance * math.cos(pitch) * math.cos(yaw)
         return np.array([x, y, z], dtype=np.float64)
 
     @property
@@ -55,8 +58,10 @@ class OrbitCamera:
     def look(self, dx: float, dy: float) -> None:
         dx = max(-80.0, min(80.0, float(dx)))
         dy = max(-80.0, min(80.0, float(dy)))
+        eye = self.eye.copy()
         self.yaw += dx * 0.11
         self.pitch = max(-85.0, min(85.0, self.pitch - dy * 0.11))
+        self.target = eye - self._eye_offset()
 
     def pan(self, dx: float, dy: float) -> None:
         self.pan_pixels(dx, dy, viewport_height=900)

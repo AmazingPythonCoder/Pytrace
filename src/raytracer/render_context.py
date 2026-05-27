@@ -246,23 +246,6 @@ def build_render_context(scene: Scene) -> RenderContext:
     render_mode = _mode_id(scene.render.render_mode, {"direct": 0, "path": 1, "path_tracing": 1}, 0)
     background_mode = _mode_id(scene.render.background_mode, {"solid": 0, "gradient": 1, "environment": 2}, 1)
     bvh_nodes, bvh_prims = build_bvh(spheres_arr, planes_arr, triangles_arr, cam.position)
-    gpu_reasons: list[str] = []
-    if triangles_arr.shape[0] > 0:
-        gpu_reasons.append("mesh geometry")
-    if render_mode != 0:
-        gpu_reasons.append("path render mode")
-    if background_mode == 0:
-        gpu_reasons.append("solid background mode")
-    elif background_mode == 2:
-        gpu_reasons.append("environment background mode")
-    if float(getattr(cam, "aperture", 0.0)) > 0.0:
-        gpu_reasons.append("depth of field")
-    if any(isinstance(mat, EmissiveMaterial) for mat in mat_list):
-        gpu_reasons.append("emissive materials")
-    if any(isinstance(light, DirectionalLight) for light in scene.lights):
-        gpu_reasons.append("directional lights")
-    gpu_supported = not gpu_reasons
-
     return RenderContext(
         width=w,
         height=h,
@@ -290,6 +273,6 @@ def build_render_context(scene: Scene) -> RenderContext:
         lights=lights_arr,
         bvh_nodes=bvh_nodes,
         bvh_prims=bvh_prims,
-        gpu_supported=gpu_supported,
-        gpu_fallback_reason=", ".join(gpu_reasons),
+        gpu_supported=True,
+        gpu_fallback_reason="",
     )

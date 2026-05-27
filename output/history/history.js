@@ -1,5 +1,122 @@
 const PYTRACE_HISTORY = [
   {
+    "filename": "output/history/render_20260523_205742_low.png",
+    "timestamp": "2026-05-23 20:57:42",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
+    "filename": "output/history/render_20260523_153129_med.png",
+    "timestamp": "2026-05-23 15:31:29",
+    "level": "med",
+    "width": 1280,
+    "height": 720,
+    "samples": 128,
+    "bounces": 10
+  },
+  {
+    "filename": "output/history/render_20260523_153024_low.png",
+    "timestamp": "2026-05-23 15:30:24",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
+    "filename": "output/history/render_20260523_152930_low.png",
+    "timestamp": "2026-05-23 15:29:30",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
+    "filename": "output/history/render_20260523_152245_low.png",
+    "timestamp": "2026-05-23 15:22:45",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
+    "filename": "output/history/render_20260523_152055_low.png",
+    "timestamp": "2026-05-23 15:20:55",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
+    "filename": "output/history/render_20260523_152015_low.png",
+    "timestamp": "2026-05-23 15:20:15",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
+    "filename": "output/history/render_20260523_151926_low.png",
+    "timestamp": "2026-05-23 15:19:26",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
+    "filename": "output/history/render_20260523_151608_low.png",
+    "timestamp": "2026-05-23 15:16:08",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
+    "filename": "output/history/render_20260523_151158_low.png",
+    "timestamp": "2026-05-23 15:11:58",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
+    "filename": "output/history/render_20260523_134009_low.png",
+    "timestamp": "2026-05-23 13:40:09",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
+    "filename": "output/history/render_20260523_133928_low.png",
+    "timestamp": "2026-05-23 13:39:28",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
+    "filename": "output/history/render_20260523_133916_low.png",
+    "timestamp": "2026-05-23 13:39:16",
+    "level": "low",
+    "width": 800,
+    "height": 450,
+    "samples": 32,
+    "bounces": 8
+  },
+  {
     "filename": "output/history/render_20260523_125202_med.png",
     "timestamp": "2026-05-23 12:52:02",
     "level": "med",

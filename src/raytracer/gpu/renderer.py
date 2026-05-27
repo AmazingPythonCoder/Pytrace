@@ -62,17 +62,28 @@ def _render_kernel(
     cam_vx,
     cam_vy,
     cam_vz,
+    cam_lens_ux,
+    cam_lens_uy,
+    cam_lens_uz,
+    cam_lens_vx,
+    cam_lens_vy,
+    cam_lens_vz,
+    cam_aperture,
     inv_width,
     inv_height,
     max_bounces,
     area_light_samples,
+    render_mode,
+    background_mode,
     spheres,
     planes,
+    triangles,
     bvh_nodes,
     bvh_prims,
     materials,
     lights,
     background,
+    environment,
 ):
     x, y, sample_offset = cuda.grid(3)  # pyright: ignore[reportAttributeAccessIssue, reportAssignmentType]
     if x >= width or y >= height or sample_offset >= sample_count:
@@ -94,17 +105,28 @@ def _render_kernel(
         cam_vx,
         cam_vy,
         cam_vz,
+        cam_lens_ux,
+        cam_lens_uy,
+        cam_lens_uz,
+        cam_lens_vx,
+        cam_lens_vy,
+        cam_lens_vz,
+        cam_aperture,
         inv_width,
         inv_height,
         max_bounces,
         area_light_samples,
+        render_mode,
+        background_mode,
         spheres,
         planes,
+        triangles,
         bvh_nodes,
         bvh_prims,
         materials,
         lights,
         background,
+        environment,
     )
     cuda.atomic.add(image, (y, x, 0), tr)  # pyright: ignore[reportAttributeAccessIssue, reportCallIssue]
     cuda.atomic.add(image, (y, x, 1), tg)  # pyright: ignore[reportAttributeAccessIssue, reportCallIssue]
@@ -158,17 +180,28 @@ def _launch(dev: DeviceRenderContext, image, sample_start: int, sample_count: in
         dev.cam_vx,
         dev.cam_vy,
         dev.cam_vz,
+        dev.cam_lens_ux,
+        dev.cam_lens_uy,
+        dev.cam_lens_uz,
+        dev.cam_lens_vx,
+        dev.cam_lens_vy,
+        dev.cam_lens_vz,
+        dev.cam_aperture,
         dev.inv_width,
         dev.inv_height,
         dev.max_bounces,
         dev.area_light_samples,
+        dev.render_mode,
+        dev.background_mode,
         dev.spheres,
         dev.planes,
+        dev.triangles,
         dev.bvh_nodes,
         dev.bvh_prims,
         dev.materials,
         dev.lights,
         dev.background,
+        dev.environment,
     )
 
 
@@ -182,6 +215,7 @@ def render_gpu(
     progress_callback=None,
     dev: DeviceRenderContext | None = None,
     cancel_callback=None,
+    preview_callback=None,
 ) -> np.ndarray:
     """Render on CUDA; returns host float64 HDR image (H, W, 3)."""
     if not _cuda.is_available():
@@ -192,7 +226,7 @@ def render_gpu(
     image = _cuda.device_array((dev.height, dev.width, 3), dtype=np.float32)
     chunk_size = (
         max(1, int(math.ceil(dev.samples / _PROGRESS_STEPS)))
-        if progress_callback
+        if progress_callback or preview_callback
         else dev.samples
     )
     total_chunks = int(math.ceil(dev.samples / chunk_size))
@@ -212,6 +246,9 @@ def render_gpu(
             _launch(dev, image, sample_start, sample_count)
             _cuda.synchronize()
             chunks_done += 1
+            if preview_callback:
+                samples_done = sample_start + sample_count
+                preview_callback(image.copy_to_host() / max(1, samples_done))
             if progress_callback:
                 progress_callback(chunks_done, total_chunks)
             if cancel_callback and cancel_callback():

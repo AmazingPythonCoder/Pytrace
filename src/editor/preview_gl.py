@@ -3,7 +3,7 @@ from __future__ import annotations
 import ctypes
 import math
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from OpenGL import GL
@@ -55,7 +55,10 @@ def _normalize(v: np.ndarray) -> np.ndarray:
 
 
 def _compile_shader(shader_type: int, source: str) -> int:
-    shader = GL.glCreateShader(shader_type)
+    shader_obj = GL.glCreateShader(shader_type)
+    if shader_obj is None:
+        raise RuntimeError("OpenGL shader creation failed")
+    shader = int(cast(Any, shader_obj))
     GL.glShaderSource(shader, source)
     GL.glCompileShader(shader)
     if not GL.glGetShaderiv(shader, GL.GL_COMPILE_STATUS):
@@ -67,7 +70,10 @@ def _compile_shader(shader_type: int, source: str) -> int:
 def _create_program() -> int:
     vertex = _compile_shader(GL.GL_VERTEX_SHADER, VERTEX_SHADER)
     fragment = _compile_shader(GL.GL_FRAGMENT_SHADER, FRAGMENT_SHADER)
-    program = GL.glCreateProgram()
+    program_obj = GL.glCreateProgram()
+    if program_obj is None:
+        raise RuntimeError("OpenGL program creation failed")
+    program = int(cast(Any, program_obj))
     GL.glAttachShader(program, vertex)
     GL.glAttachShader(program, fragment)
     GL.glLinkProgram(program)
@@ -76,7 +82,7 @@ def _create_program() -> int:
     if not GL.glGetProgramiv(program, GL.GL_LINK_STATUS):
         log = GL.glGetProgramInfoLog(program).decode("utf-8", errors="replace")
         raise RuntimeError(f"OpenGL shader link failed: {log}")
-    return int(program)
+    return program
 
 
 def _perspective(fov_degrees: float, aspect: float, near: float, far: float) -> np.ndarray:
@@ -229,7 +235,8 @@ class PreviewRenderer:
         GL.glEnable(GL.GL_BLEND)
         GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
         GL.glClearColor(0.055, 0.065, 0.085, 1.0)
-        GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
+        clear_mask = int(cast(Any, GL.GL_COLOR_BUFFER_BIT)) | int(cast(Any, GL.GL_DEPTH_BUFFER_BIT))
+        GL.glClear(clear_mask)
         GL.glUseProgram(self.program)
         GL.glUniformMatrix4fv(GL.glGetUniformLocation(self.program, "u_vp"), 1, GL.GL_TRUE, vp)
         GL.glBindVertexArray(self.vao)

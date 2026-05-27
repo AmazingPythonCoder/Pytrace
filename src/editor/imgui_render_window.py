@@ -143,6 +143,11 @@ class ImguiRenderWindow:
                     self.image[y0:y1, x0:x1] = tile
                     self.texture_dirty = True
 
+            def preview_callback(image: np.ndarray) -> None:
+                with self._lock:
+                    self.image = image.copy()
+                    self.texture_dirty = True
+
             image = render(
                 self.scene,
                 progress_callback=progress,
@@ -151,6 +156,7 @@ class ImguiRenderWindow:
                 use_gpu=use_gpu,
                 cancel_callback=lambda: self.cancel_requested,
                 tile_callback=tile_callback,
+                preview_callback=preview_callback,
             )
             with self._lock:
                 self.image = image

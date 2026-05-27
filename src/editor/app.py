@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from typing import Any, cast
 
 if os.getenv("XDG_SESSION_TYPE") == "wayland" and not os.getenv("PYOPENGL_PLATFORM"):
     os.environ["PYOPENGL_PLATFORM"] = "x11"
@@ -55,6 +56,8 @@ class EditorState:
     viewport_hovered: bool = False
     gizmo_operation: object | None = None
     fly_velocity: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=np.float64))
+    nav_delta_velocity: np.ndarray = field(default_factory=lambda: np.zeros(2, dtype=np.float64))
+    pan_delta_velocity: np.ndarray = field(default_factory=lambda: np.zeros(2, dtype=np.float64))
     gizmo_local: bool = False
     snap_enabled: bool = False
     snap_translate: float = 0.25
@@ -188,6 +191,9 @@ def _draw_toolbar(state: EditorState) -> None:
     if imgui.button(f"GPU {'On' if state.use_gpu else 'Off'}"):
         state.use_gpu = not state.use_gpu
     imgui.same_line()
+    if imgui.button("Camera To View"):
+        _align_camera_to_view(state)
+    imgui.same_line()
     if _GIZMO is not None:
         if imgui.button("Move"):
             _set_gizmo_operation(state, "translate")
@@ -241,6 +247,15 @@ def _draw_menus(state: EditorState) -> None:
             state.use_gpu = bool(selected)
         imgui.end_menu()
 
+    if imgui.begin_menu("Camera"):
+        clicked, _ = imgui.menu_item("Camera To Current View", "", False, True)
+        if clicked:
+            _align_camera_to_view(state)
+        clicked, _ = imgui.menu_item("Select Camera", "", False, True)
+        if clicked:
+            state.scene.selected = state.scene.camera
+        imgui.end_menu()
+
 
 def _draw_popups_and_shortcuts(state: EditorState) -> None:
     _handle_shortcuts(state)
@@ -275,35 +290,50 @@ def _draw_imguizmo(state: EditorState, rect_min: ImVec2, width: int, height: int
     selected = state.scene.selected
     old_position = np.asarray(getattr(selected, "position"), dtype=np.float64).copy()
     view, projection = matrices_for_imguizmo(state.preview)
-    matrix = _object_matrix_for_gizmo(selected)
+    operation = cast(Any, state.gizmo_operation or _GIZMO.OPERATION.translate)
+    matrix = _object_matrix_for_gizmo(selected, operation, state.gizmo_local)
     _GIZMO.begin_frame()
     _GIZMO.set_drawlist()
     _GIZMO.set_rect(float(rect_min.x), float(rect_min.y), float(width), float(height))
     _GIZMO.manipulate(
         _GIZMO.Matrix16(view),
         _GIZMO.Matrix16(projection),
-        state.gizmo_operation or _GIZMO.OPERATION.translate,
+        operation,
         _GIZMO.MODE.local if state.gizmo_local else _GIZMO.MODE.world,
         matrix,
         None,
-        _gizmo_snap(state),
+        cast(Any, _gizmo_snap(state)),
     )
     if _GIZMO.is_using():
         components = _GIZMO.decompose_matrix_to_components(matrix)
-        new_position = np.asarray(components.translation.values, dtype=np.float64)
-        getattr(selected, "position")[:] = new_position
-        if isinstance(selected, SceneObject):
+        if operation == _GIZMO.OPERATION.translate:
+            new_position = np.asarray(components.translation.values, dtype=np.float64)
+            getattr(selected, "position")[:] = new_position
+            if isinstance(selected, Camera):
+                selected.target[:] = selected.target + (new_position - old_position)
+        elif operation == _GIZMO.OPERATION.rotate and isinstance(selected, SceneObject):
             selected.rotation[:] = np.asarray(components.rotation.values, dtype=np.float64)
+            getattr(selected, "position")[:] = old_position
+        elif operation == _GIZMO.OPERATION.scale and isinstance(selected, SceneObject):
             selected.scale[:] = np.maximum(0.02, np.asarray(components.scale.values, dtype=np.float64))
-        if isinstance(selected, Camera):
-            selected.target[:] = selected.target + (new_position - old_position)
+            getattr(selected, "position")[:] = old_position
 
 
-def _object_matrix_for_gizmo(item: object) -> object:
-    pos = np.asarray(getattr(item, "position"), dtype=np.float64)
+def _gizmo_linear_for_operation(item: object, operation: object, local_handles: bool) -> np.ndarray:
     scale = np.asarray(getattr(item, "scale", np.ones(3, dtype=np.float64)), dtype=np.float64)
     rotation = _rotation_matrix(np.asarray(getattr(item, "rotation", np.zeros(3, dtype=np.float64)), dtype=np.float64))
-    linear = rotation @ np.diag(scale)
+    if _GIZMO is not None and operation == _GIZMO.OPERATION.scale:
+        basis = rotation if local_handles else np.eye(3, dtype=np.float64)
+        return basis @ np.diag(scale)
+    if _GIZMO is not None and operation == _GIZMO.OPERATION.translate:
+        return rotation if local_handles else np.eye(3, dtype=np.float64)
+    return rotation
+
+
+def _object_matrix_for_gizmo(item: object, operation: object, local_handles: bool) -> Any:
+    assert _GIZMO is not None
+    pos = np.asarray(getattr(item, "position"), dtype=np.float64)
+    linear = _gizmo_linear_for_operation(item, operation, local_handles)
     values = [
         float(linear[0, 0]), float(linear[1, 0]), float(linear[2, 0]), 0.0,
         float(linear[0, 1]), float(linear[1, 1]), float(linear[2, 1]), 0.0,
@@ -371,7 +401,7 @@ def _handle_viewport_input(state: EditorState, rect_min: ImVec2, width: int, hei
 
     if state.transforms.mode is not None:
         if imgui.is_mouse_down(imgui.MouseButton_.left):
-            state.transforms.drag(mouse, state.orbit, height, _input_speed_scale(io))
+            state.transforms.drag(mouse, state.orbit, height, _input_speed_scale(io), width)
         if imgui.is_mouse_released(imgui.MouseButton_.left):
             state.transforms.confirm()
         if imgui.is_mouse_clicked(imgui.MouseButton_.right):
@@ -388,28 +418,62 @@ def _handle_viewport_input(state: EditorState, rect_min: ImVec2, width: int, hei
 
     if hovered and imgui.is_mouse_clicked(imgui.MouseButton_.middle):
         state.viewport_drag = "pan" if io.key_shift else "orbit"
+        _reset_navigation_smoothing(state)
     if hovered and imgui.is_mouse_clicked(imgui.MouseButton_.right):
         state.viewport_drag = "look"
+        _reset_navigation_smoothing(state)
 
     if state.viewport_drag == "orbit" and imgui.is_mouse_down(imgui.MouseButton_.middle):
         delta = io.mouse_delta
+        dt = float(io.delta_time)
         if io.key_shift:
-            state.orbit.pan_pixels(float(delta.x), float(delta.y), height)
+            smooth = _smoothed_pan_delta(state, float(delta.x), float(delta.y), dt)
+            state.orbit.pan_pixels(float(smooth[0]), float(smooth[1]), height)
         else:
-            state.orbit.orbit(float(delta.x), float(delta.y))
+            smooth = _smoothed_angle_delta(state, float(delta.x), float(delta.y), dt)
+            state.orbit.orbit(float(smooth[0]), float(smooth[1]))
     elif state.viewport_drag == "pan" and imgui.is_mouse_down(imgui.MouseButton_.middle):
         delta = io.mouse_delta
-        state.orbit.pan_pixels(float(delta.x), float(delta.y), height)
+        smooth = _smoothed_pan_delta(state, float(delta.x), float(delta.y), float(io.delta_time))
+        state.orbit.pan_pixels(float(smooth[0]), float(smooth[1]), height)
     elif state.viewport_drag == "look" and imgui.is_mouse_down(imgui.MouseButton_.right):
         delta = io.mouse_delta
-        state.orbit.look(float(delta.x), float(delta.y))
+        smooth = _smoothed_angle_delta(state, float(delta.x), float(delta.y), float(io.delta_time))
+        state.orbit.look(float(smooth[0]), float(smooth[1]))
         _handle_viewport_keyboard(state, float(io.delta_time), io, True)
 
     if state.viewport_drag in {"orbit", "pan"} and not imgui.is_mouse_down(imgui.MouseButton_.middle):
         state.viewport_drag = None
+        _reset_navigation_smoothing(state)
     if state.viewport_drag == "look" and not imgui.is_mouse_down(imgui.MouseButton_.right):
         state.viewport_drag = None
         state.fly_velocity *= 0.0
+        _reset_navigation_smoothing(state)
+
+
+def _reset_navigation_smoothing(state: EditorState) -> None:
+    state.nav_delta_velocity *= 0.0
+    state.pan_delta_velocity *= 0.0
+
+
+def _smooth_delta(current: np.ndarray, raw_x: float, raw_y: float, dt: float, responsiveness: float) -> np.ndarray:
+    dt = max(0.0, min(0.05, float(dt)))
+    target = np.array([raw_x, raw_y], dtype=np.float64)
+    if float(np.linalg.norm(target)) > 120.0:
+        target *= 120.0 / float(np.linalg.norm(target))
+    alpha = 1.0 if dt <= 0.0 else 1.0 - float(np.exp(-dt * responsiveness))
+    current += (target - current) * alpha
+    if float(np.linalg.norm(target)) <= 1e-6 and float(np.linalg.norm(current)) < 0.01:
+        current *= 0.0
+    return current
+
+
+def _smoothed_angle_delta(state: EditorState, raw_x: float, raw_y: float, dt: float) -> np.ndarray:
+    return _smooth_delta(state.nav_delta_velocity, raw_x, raw_y, dt, responsiveness=28.0)
+
+
+def _smoothed_pan_delta(state: EditorState, raw_x: float, raw_y: float, dt: float) -> np.ndarray:
+    return _smooth_delta(state.pan_delta_velocity, raw_x, raw_y, dt, responsiveness=22.0)
 
 
 def _handle_shortcuts(state: EditorState) -> None:
@@ -445,6 +509,8 @@ def _handle_shortcuts(state: EditorState) -> None:
         return
     if imgui.is_key_pressed(imgui.Key.delete) or imgui.is_key_pressed(imgui.Key.x):
         _delete_selected(state.scene)
+        return
+    if state.viewport_drag == "look":
         return
     for key_name, key in (("g", imgui.Key.g), ("s", imgui.Key.s), ("r", imgui.Key.r)):
         if imgui.is_key_pressed(key):
@@ -546,6 +612,10 @@ def _draw_camera_properties(state: EditorState) -> None:
     cam = state.scene.camera
     render = state.scene.render
     _separator("Camera")
+    if imgui.button("Set Camera To Current View"):
+        _align_camera_to_view(state)
+    if imgui.is_item_hovered():
+        imgui.set_tooltip("Match the render camera to the current editor viewport")
     _draw_transform_tools(state, cam)
     _drag_vec3("Position", cam.position, 0.01)
     _drag_vec3("Target", cam.target, 0.01)
@@ -571,6 +641,18 @@ def _draw_camera_properties(state: EditorState) -> None:
         if path:
             render.environment_path = path
             render.background_mode = "environment"
+
+
+def _align_camera_to_view(state: EditorState) -> None:
+    cam = state.scene.camera
+    eye = state.orbit.eye
+    target = state.orbit.target
+    cam.position[:] = eye
+    cam.target[:] = target
+    cam.up[:] = state.orbit.up
+    cam.fov = float(max(5.0, min(160.0, state.orbit.fov)))
+    cam.focus_distance = float(max(1e-6, state.orbit.distance))
+    state.scene.selected = cam
 
 
 def _draw_material(material: Material) -> None:

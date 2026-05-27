@@ -15,12 +15,15 @@ _F001 = float32(0.001)
 _F01 = float32(0.01)
 _F05 = float32(0.5)
 _F1 = float32(1.0)
+_F15 = float32(1.5)
 _F2 = float32(2.0)
 _FM1 = float32(-1.0)
 _EPS8 = float32(1e-8)
 _EPS12 = float32(1e-12)
 _RAY_EPS = float32(1e-4)
 _TMAX = float32(1e9)
+_PI = float32(math.pi)
+_TWO_PI = float32(2.0 * math.pi)
 
 
 @cuda.jit(device=True, inline=True, fastmath=True, cache=True)
@@ -93,12 +96,49 @@ def _random_disk_point(state, cx, cy, cz, nx, ny, nz, radius):
 
 
 @cuda.jit(device=True, fastmath=True, cache=True)
+def _background_color(dx, dy, dz, background, environment, background_mode):
+    if background_mode == 2 and environment.shape[0] > 0 and environment.shape[1] > 0:
+        u = math.atan2(dz, dx) / _TWO_PI + _F05
+        v = math.acos(max(_FM1, min(_F1, dy))) / _PI
+        ix = int(u * float32(environment.shape[1] - 1))
+        iy = int(v * float32(environment.shape[0] - 1))
+        if ix < 0:
+            ix = 0
+        elif ix >= environment.shape[1]:
+            ix = environment.shape[1] - 1
+        if iy < 0:
+            iy = 0
+        elif iy >= environment.shape[0]:
+            iy = environment.shape[0] - 1
+        return environment[iy, ix, 0], environment[iy, ix, 1], environment[iy, ix, 2]
+    if background_mode == 0:
+        return background[0], background[1], background[2]
+    sky_t = _F05 * (dy + _F1)
+    sky_r = (_F1 - sky_t) * _F1 + sky_t * _F05
+    sky_g = (_F1 - sky_t) * _F1 + sky_t * float32(0.7)
+    sky_b = (_F1 - sky_t) * _F1 + sky_t * _F1
+    return sky_r, sky_g, sky_b
+
+
+@cuda.jit(device=True, fastmath=True, cache=True)
+def _random_hemisphere_direction(state, nx, ny, nz):
+    state, rx, ry, rz = rand_in_unit_sphere(state)
+    lx = nx + rx
+    ly = ny + ry
+    lz = nz + rz
+    llen = math.sqrt(lx * lx + ly * ly + lz * lz)
+    if llen <= _EPS12:
+        return state, nx, ny, nz
+    return state, lx / llen, ly / llen, lz / llen
+
+
+@cuda.jit(device=True, fastmath=True, cache=True)
 def _add_point_light_contrib(
     px, py, pz, nx, ny, nz,
     color_r, color_g, color_b, roughness,
     ray_dx, ray_dy, ray_dz,
     lx, ly, lz, lr, lg, lb, intensity,
-    spheres, planes, bvh_nodes, bvh_prims,
+    spheres, planes, triangles, bvh_nodes, bvh_prims,
     out_r, out_g, out_b, weight,
 ):
     to_light_x = lx - px
@@ -116,7 +156,7 @@ def _add_point_light_contrib(
     shadow_oz = pz + nz * _RAY_EPS
     if bvh_any_hit(
         shadow_ox, shadow_oy, shadow_oz, ldx, ldy, ldz,
-        spheres, planes, bvh_nodes, bvh_prims,
+        spheres, planes, triangles, bvh_nodes, bvh_prims,
         _RAY_EPS, math.sqrt(dist_sq) - _RAY_EPS,
     ):
         return out_r, out_g, out_b
@@ -147,10 +187,64 @@ def _add_point_light_contrib(
 
 
 @cuda.jit(device=True, fastmath=True, cache=True)
+def _add_directional_light_contrib(
+    px, py, pz, nx, ny, nz,
+    color_r, color_g, color_b, roughness,
+    ray_dx, ray_dy, ray_dz,
+    dir_x, dir_y, dir_z, lr, lg, lb, intensity,
+    spheres, planes, triangles, bvh_nodes, bvh_prims,
+    out_r, out_g, out_b,
+):
+    ldx = -dir_x
+    ldy = -dir_y
+    ldz = -dir_z
+    llen = math.sqrt(ldx * ldx + ldy * ldy + ldz * ldz)
+    if llen <= _EPS12:
+        return out_r, out_g, out_b
+    ldx /= llen
+    ldy /= llen
+    ldz /= llen
+
+    shadow_ox = px + nx * _RAY_EPS
+    shadow_oy = py + ny * _RAY_EPS
+    shadow_oz = pz + nz * _RAY_EPS
+    if bvh_any_hit(
+        shadow_ox, shadow_oy, shadow_oz, ldx, ldy, ldz,
+        spheres, planes, triangles, bvh_nodes, bvh_prims,
+        _RAY_EPS, _TMAX,
+    ):
+        return out_r, out_g, out_b
+
+    n_dot_l = nx * ldx + ny * ldy + nz * ldz
+    wrap = float32(0.6) * roughness
+    ndotl = max(_F0, (n_dot_l + wrap) / (_F1 + wrap))
+    ndotl = ndotl * (_F1 - float32(0.45) * roughness)
+    specular = _F0
+    if roughness < _F1:
+        view_dx, view_dy, view_dz = -ray_dx, -ray_dy, -ray_dz
+        hx = ldx + view_dx
+        hy = ldy + view_dy
+        hz = ldz + view_dz
+        hlen = math.sqrt(hx * hx + hy * hy + hz * hz)
+        if hlen > _EPS8:
+            hx /= hlen
+            hy /= hlen
+            hz /= hlen
+            specular_power = _F2 / (roughness * roughness + _F001)
+            ndoth = max(_F0, nx * hx + ny * hy + nz * hz)
+            specular = (ndoth ** specular_power) * (_F1 - roughness)
+
+    out_r += (color_r * lr * intensity * ndotl) + (lr * intensity * specular)
+    out_g += (color_g * lg * intensity * ndotl) + (lg * intensity * specular)
+    out_b += (color_b * lb * intensity * ndotl) + (lb * intensity * specular)
+    return out_r, out_g, out_b
+
+
+@cuda.jit(device=True, fastmath=True, cache=True)
 def _shade_diffuse(
     state, px, py, pz, nx, ny, nz, mat_idx,
     ray_dx, ray_dy, ray_dz,
-    spheres, planes, bvh_nodes, bvh_prims,
+    spheres, planes, triangles, bvh_nodes, bvh_prims,
     materials, lights, area_light_samples,
 ):
     idx = int(mat_idx)
@@ -197,10 +291,10 @@ def _shade_diffuse(
                 lights[i, 1], lights[i, 2], lights[i, 3],
                 lights[i, 4], lights[i, 5], lights[i, 6],
                 lights[i, 7],
-                spheres, planes, bvh_nodes, bvh_prims,
+                spheres, planes, triangles, bvh_nodes, bvh_prims,
                 out_r, out_g, out_b, _F1,
             )
-        else:
+        elif light_type < _F15:
             cx_l, cy_l, cz_l = lights[i, 1], lights[i, 2], lights[i, 3]
             lnx, lny, lnz = lights[i, 4], lights[i, 5], lights[i, 6]
             lr, lg, lb = lights[i, 7], lights[i, 8], lights[i, 9]
@@ -216,9 +310,20 @@ def _shade_diffuse(
                     color_r, color_g, color_b, roughness,
                     ray_dx, ray_dy, ray_dz,
                     lx, ly, lz, lr, lg, lb, sample_intensity,
-                    spheres, planes, bvh_nodes, bvh_prims,
+                    spheres, planes, triangles, bvh_nodes, bvh_prims,
                     out_r, out_g, out_b, _F1,
                 )
+        else:
+            out_r, out_g, out_b = _add_directional_light_contrib(
+                px, py, pz, nx, ny, nz,
+                color_r, color_g, color_b, roughness,
+                ray_dx, ray_dy, ray_dz,
+                lights[i, 1], lights[i, 2], lights[i, 3],
+                lights[i, 4], lights[i, 5], lights[i, 6],
+                lights[i, 7],
+                spheres, planes, triangles, bvh_nodes, bvh_prims,
+                out_r, out_g, out_b,
+            )
     t = _F05 * (ny + _F1)
     amb_r = (_F1 - t) * float32(0.12) + t * float32(0.55)
     amb_g = (_F1 - t) * float32(0.16) + t * float32(0.62)
@@ -232,38 +337,46 @@ def _shade_diffuse(
 @cuda.jit(device=True, fastmath=True, cache=True)
 def trace_path(
     state, ray_ox, ray_oy, ray_oz, ray_dx, ray_dy, ray_dz,
-    spheres, planes, bvh_nodes, bvh_prims,
-    materials, lights, background,
+    spheres, planes, triangles, bvh_nodes, bvh_prims,
+    materials, lights, background, environment,
     max_bounces, area_light_samples,
+    render_mode, background_mode,
 ):
     color_r, color_g, color_b = _F0, _F0, _F0
     th_r, th_g, th_b = _F1, _F1, _F1
     for depth in range(max_bounces + 1):
         t, px, py, pz, nx, ny, nz, front_face, mat_idx = bvh_find_closest_hit(
             ray_ox, ray_oy, ray_oz, ray_dx, ray_dy, ray_dz,
-            spheres, planes, bvh_nodes, bvh_prims, _RAY_EPS, _TMAX,
+            spheres, planes, triangles, bvh_nodes, bvh_prims, _RAY_EPS, _TMAX,
         )
         if t < _F0:
-            sky_t = _F05 * (ray_dy + _F1)
-            sky_r = (_F1 - sky_t) * _F1 + sky_t * _F05
-            sky_g = (_F1 - sky_t) * _F1 + sky_t * float32(0.7)
-            sky_b = (_F1 - sky_t) * _F1 + sky_t * _F1
-            color_r += th_r * sky_r
-            color_g += th_g * sky_g
-            color_b += th_b * sky_b
+            bg_r, bg_g, bg_b = _background_color(ray_dx, ray_dy, ray_dz, background, environment, background_mode)
+            color_r += th_r * bg_r
+            color_g += th_g * bg_g
+            color_b += th_b * bg_b
             break
         mat_type = materials[int(mat_idx), 0]
         if mat_type == _F0:
-            state, dr, dg, db = _shade_diffuse(
-                state, px, py, pz, nx, ny, nz, mat_idx,
-                ray_dx, ray_dy, ray_dz,
-                spheres, planes, bvh_nodes, bvh_prims,
-                materials, lights, area_light_samples,
-            )
-            color_r += th_r * dr
-            color_g += th_g * dg
-            color_b += th_b * db
-            break
+            if render_mode == 1:
+                idx = int(mat_idx)
+                th_r *= materials[idx, 1]
+                th_g *= materials[idx, 2]
+                th_b *= materials[idx, 3]
+                state, ray_dx, ray_dy, ray_dz = _random_hemisphere_direction(state, nx, ny, nz)
+                ray_ox = px + nx * _RAY_EPS
+                ray_oy = py + ny * _RAY_EPS
+                ray_oz = pz + nz * _RAY_EPS
+            else:
+                state, dr, dg, db = _shade_diffuse(
+                    state, px, py, pz, nx, ny, nz, mat_idx,
+                    ray_dx, ray_dy, ray_dz,
+                    spheres, planes, triangles, bvh_nodes, bvh_prims,
+                    materials, lights, area_light_samples,
+                )
+                color_r += th_r * dr
+                color_g += th_g * dg
+                color_b += th_b * db
+                break
         elif mat_type == _F1:
             mr = materials[int(mat_idx), 1]
             mg = materials[int(mat_idx), 2]
@@ -357,10 +470,18 @@ def trace_path(
                 ray_ox = px - nx * _RAY_EPS
                 ray_oy = py - ny * _RAY_EPS
                 ray_oz = pz - nz * _RAY_EPS
+        elif mat_type == float32(3.0):
+            idx = int(mat_idx)
+            strength = materials[idx, 4]
+            color_r += th_r * materials[idx, 1] * strength
+            color_g += th_g * materials[idx, 2] * strength
+            color_b += th_b * materials[idx, 3] * strength
+            break
     else:
-        color_r += th_r * background[0]
-        color_g += th_g * background[1]
-        color_b += th_b * background[2]
+        bg_r, bg_g, bg_b = _background_color(ray_dx, ray_dy, ray_dz, background, environment, background_mode)
+        color_r += th_r * bg_r
+        color_g += th_g * bg_g
+        color_b += th_b * bg_b
     return state, color_r, color_g, color_b
 
 
@@ -371,10 +492,14 @@ def trace_pixel_cuda(
     cam_llx, cam_lly, cam_llz,
     cam_hx, cam_hy, cam_hz,
     cam_vx, cam_vy, cam_vz,
+    lens_ux, lens_uy, lens_uz,
+    lens_vx, lens_vy, lens_vz,
+    aperture,
     inv_width, inv_height,
     max_bounces, area_light_samples,
-    spheres, planes, bvh_nodes, bvh_prims,
-    materials, lights, background,
+    render_mode, background_mode,
+    spheres, planes, triangles, bvh_nodes, bvh_prims,
+    materials, lights, background, environment,
 ):
     state = rng_seed(px, py, sample_i, 0)
     state, jx = rand_float(state)
@@ -383,18 +508,51 @@ def trace_pixel_cuda(
     jy -= _F05
     s = (px + jx) * inv_width
     t = _F1 - (py + jy) * inv_height
-    dx = cam_llx + s * cam_hx + t * cam_vx - cam_ox
-    dy = cam_lly + s * cam_hy + t * cam_vy - cam_oy
-    dz = cam_llz + s * cam_hz + t * cam_vz - cam_oz
+    focus_x = cam_llx + s * cam_hx + t * cam_vx
+    focus_y = cam_lly + s * cam_hy + t * cam_vy
+    focus_z = cam_llz + s * cam_hz + t * cam_vz
+    dx = focus_x - cam_ox
+    dy = focus_y - cam_oy
+    dz = focus_z - cam_oz
     dlen = math.sqrt(dx * dx + dy * dy + dz * dz)
     if dlen > _F0:
         dx /= dlen
         dy /= dlen
         dz /= dlen
+
+    ray_ox = cam_ox
+    ray_oy = cam_oy
+    ray_oz = cam_oz
+    if aperture > _F0:
+        while True:
+            state, lx = rand_float(state)
+            state, ly = rand_float(state)
+            lx = lx * _F2 - _F1
+            ly = ly * _F2 - _F1
+            if lx * lx + ly * ly <= _F1:
+                break
+        lens_x = aperture * lx
+        lens_y = aperture * ly
+        off_x = lens_ux * lens_x + lens_vx * lens_y
+        off_y = lens_uy * lens_x + lens_vy * lens_y
+        off_z = lens_uz * lens_x + lens_vz * lens_y
+        ray_ox = cam_ox + off_x
+        ray_oy = cam_oy + off_y
+        ray_oz = cam_oz + off_z
+        dx = focus_x - ray_ox
+        dy = focus_y - ray_oy
+        dz = focus_z - ray_oz
+        dlen = math.sqrt(dx * dx + dy * dy + dz * dz)
+        if dlen > _F0:
+            dx /= dlen
+            dy /= dlen
+            dz /= dlen
+
     state, cr, cg, cb = trace_path(
-        state, cam_ox, cam_oy, cam_oz, dx, dy, dz,
-        spheres, planes, bvh_nodes, bvh_prims,
-        materials, lights, background,
+        state, ray_ox, ray_oy, ray_oz, dx, dy, dz,
+        spheres, planes, triangles, bvh_nodes, bvh_prims,
+        materials, lights, background, environment,
         max_bounces, area_light_samples,
+        render_mode, background_mode,
     )
     return cr, cg, cb

@@ -34,6 +34,7 @@ class TransformController:
         self.item: object | None = None
         self.snapshot = _Snapshot()
         self.last_mouse: tuple[float, float] | None = None
+        self.start_mouse: tuple[float, float] | None = None
 
     def status(self) -> str:
         if self.mode is None:
@@ -106,11 +107,11 @@ class TransformController:
         dy = event.pos[1] - self.last_mouse[1]
         self.last_mouse = event.pos
         if self.mode == "move":
-            self._move(dx, dy, orbit_camera)
+            self._move(dx, dy, event.pos, orbit_camera, 900, 1.0, 1600)
         elif self.mode == "scale":
-            self._scale(dx, dy, orbit_camera)
+            self._scale(event.pos, orbit_camera, 900, 1.0)
         elif self.mode == "rotate":
-            self._rotate(dx, dy)
+            self._rotate(dx, dy, 1.0)
         return True
 
     def begin(self, mode: str, item: object, mouse_pos: tuple[float, float] | None = None) -> None:
@@ -118,6 +119,7 @@ class TransformController:
         self.axis = None
         self.item = item
         self.last_mouse = mouse_pos if mouse_pos is not None else (pygame.mouse.get_pos() if pygame is not None else None)
+        self.start_mouse = self.last_mouse
         self.snapshot = self._snapshot(item)
 
     def confirm(self) -> None:
@@ -125,6 +127,7 @@ class TransformController:
         self.axis = None
         self.item = None
         self.last_mouse = None
+        self.start_mouse = None
         self.snapshot = _Snapshot()
 
     def cancel(self) -> None:
@@ -174,11 +177,19 @@ class TransformController:
             return None
         return self._pick_axis(mouse_pos, position, orbit_camera, viewport)
 
-    def drag(self, mouse_pos: tuple[float, float], orbit_camera: OrbitCamera, viewport_height: int = 900, speed_scale: float = 1.0) -> bool:
+    def drag(
+        self,
+        mouse_pos: tuple[float, float],
+        orbit_camera: OrbitCamera,
+        viewport_height: int = 900,
+        speed_scale: float = 1.0,
+        viewport_width: int | None = None,
+    ) -> bool:
         if self.mode is None:
             return False
         if self.last_mouse is None:
             self.last_mouse = mouse_pos
+            self.start_mouse = mouse_pos
             return True
         dx = mouse_pos[0] - self.last_mouse[0]
         dy = mouse_pos[1] - self.last_mouse[1]
@@ -186,9 +197,9 @@ class TransformController:
         dx = max(-80.0, min(80.0, dx))
         dy = max(-80.0, min(80.0, dy))
         if self.mode == "move":
-            self._move(dx, dy, orbit_camera, viewport_height, speed_scale)
+            self._move(dx, dy, mouse_pos, orbit_camera, viewport_height, speed_scale, viewport_width)
         elif self.mode == "scale":
-            self._scale(dx, dy, orbit_camera, viewport_height, speed_scale)
+            self._scale(mouse_pos, orbit_camera, viewport_height, speed_scale)
         elif self.mode == "rotate":
             self._rotate(dx, dy, speed_scale)
         return True
@@ -300,34 +311,97 @@ class TransformController:
         world_height = 2.0 * np.tan(np.radians(orbit_camera.fov) * 0.5) * orbit_camera.distance
         return float(world_height / pixels)
 
-    def _move(self, dx: float, dy: float, orbit_camera: OrbitCamera, viewport_height: int, speed_scale: float) -> None:
+    def _axis_drag_amount(
+        self,
+        mouse_pos: tuple[float, float],
+        position: np.ndarray,
+        axis: np.ndarray,
+        orbit_camera: OrbitCamera,
+        viewport_width: int,
+        viewport_height: int,
+        speed_scale: float,
+    ) -> float:
+        if self.start_mouse is None:
+            return 0.0
+        viewport = Rect(0, 0, max(1, int(viewport_width)), max(1, int(viewport_height)))
+        origin = self._project(position, orbit_camera, viewport)
+        end = self._project(position + axis, orbit_camera, viewport)
+        if origin is None or end is None:
+            return 0.0
+        sx = float(end[0] - origin[0])
+        sy = float(end[1] - origin[1])
+        screen_len = float(np.hypot(sx, sy))
+        if screen_len <= 1e-6:
+            return 0.0
+        dir_x = sx / screen_len
+        dir_y = sy / screen_len
+        total_dx = float(mouse_pos[0] - self.start_mouse[0])
+        total_dy = float(mouse_pos[1] - self.start_mouse[1])
+        return ((total_dx * dir_x + total_dy * dir_y) / screen_len) * speed_scale
+
+    def _move(
+        self,
+        dx: float,
+        dy: float,
+        mouse_pos: tuple[float, float],
+        orbit_camera: OrbitCamera,
+        viewport_height: int,
+        speed_scale: float,
+        viewport_width: int | None,
+    ) -> None:
         item = self.item
         if item is None or not hasattr(item, "position"):
             return
         speed = self._world_per_pixel(orbit_camera, viewport_height) * speed_scale
         if self.axis:
-            delta = self._axis_vector(self.axis) * ((dx - dy) * speed)
+            axis = self._axis_vector(self.axis)
+            base_position = self.snapshot.position
+            if base_position is None:
+                return
+            width = int(viewport_width) if viewport_width is not None else int(viewport_height * 16 / 9)
+            amount = self._axis_drag_amount(mouse_pos, base_position, axis, orbit_camera, width, viewport_height, speed_scale)
+            old_position = np.asarray(getattr(item, "position"), dtype=np.float64).copy()
+            new_position = base_position + axis * amount
+            getattr(item, "position")[:] = new_position
+            if isinstance(item, Camera):
+                if self.snapshot.target is not None:
+                    item.target[:] = self.snapshot.target + (new_position - base_position)
+                else:
+                    item.target[:] = item.target + (new_position - old_position)
+            return
         else:
             delta = (-orbit_camera.right * dx + orbit_camera.view_up * dy) * speed
         getattr(item, "position")[:] = getattr(item, "position") + delta
         if isinstance(item, Camera):
             item.target[:] = item.target + delta
 
-    def _scale(self, dx: float, dy: float, orbit_camera: OrbitCamera, viewport_height: int, speed_scale: float) -> None:
+    def _scale_factor_from_start(self, mouse_pos: tuple[float, float], speed_scale: float) -> float:
+        if self.start_mouse is None:
+            return 1.0
+        total_dx = float(mouse_pos[0] - self.start_mouse[0])
+        total_dy = float(mouse_pos[1] - self.start_mouse[1])
+        amount = max(-240.0, min(240.0, total_dx - total_dy))
+        return float(np.exp(amount * 0.006 * speed_scale))
+
+    def _scale(self, mouse_pos: tuple[float, float], orbit_camera: OrbitCamera, viewport_height: int, speed_scale: float) -> None:
         item = self.item
         if item is None:
             return
-        amount = np.exp((dx - dy) * 0.006 * speed_scale)
+        amount = self._scale_factor_from_start(mouse_pos, speed_scale)
         if isinstance(item, Sphere):
-            item.radius = max(0.02, item.radius * amount)
+            base_radius = self.snapshot.radius if self.snapshot.radius is not None else item.radius
+            item.radius = max(0.02, base_radius * amount)
         elif isinstance(item, AreaLight):
-            item.radius = max(0.02, item.radius * amount)
+            base_radius = self.snapshot.radius if self.snapshot.radius is not None else item.radius
+            item.radius = max(0.02, base_radius * amount)
         elif isinstance(item, SceneObject):
+            base_scale = self.snapshot.scale if self.snapshot.scale is not None else item.scale
             if self.axis:
                 idx = {"X": 0, "Y": 1, "Z": 2}[self.axis]
-                item.scale[idx] = max(0.02, item.scale[idx] * amount)
+                item.scale[:] = base_scale
+                item.scale[idx] = max(0.02, base_scale[idx] * amount)
             else:
-                item.scale[:] = np.maximum(0.02, item.scale * amount)
+                item.scale[:] = np.maximum(0.02, base_scale * amount)
 
     def _rotate(self, dx: float, dy: float, speed_scale: float = 1.0) -> None:
         item = self.item

@@ -26,6 +26,8 @@ class DeviceRenderContext:
     samples: int
     max_bounces: int
     area_light_samples: int
+    render_mode: int
+    background_mode: int
     cam_ox: float
     cam_oy: float
     cam_oz: float
@@ -38,15 +40,24 @@ class DeviceRenderContext:
     cam_vx: float
     cam_vy: float
     cam_vz: float
+    cam_lens_ux: float
+    cam_lens_uy: float
+    cam_lens_uz: float
+    cam_lens_vx: float
+    cam_lens_vy: float
+    cam_lens_vz: float
+    cam_aperture: float
     inv_width: float
     inv_height: float
     spheres: cuda.devicearray.DeviceNDArray
     planes: cuda.devicearray.DeviceNDArray
+    triangles: cuda.devicearray.DeviceNDArray
     bvh_nodes: cuda.devicearray.DeviceNDArray
     bvh_prims: cuda.devicearray.DeviceNDArray
     materials: cuda.devicearray.DeviceNDArray
     lights: cuda.devicearray.DeviceNDArray
     background: cuda.devicearray.DeviceNDArray
+    environment: cuda.devicearray.DeviceNDArray
 
 
 def to_device(ctx: RenderContext) -> DeviceRenderContext:
@@ -57,6 +68,8 @@ def to_device(ctx: RenderContext) -> DeviceRenderContext:
         samples=ctx.samples,
         max_bounces=ctx.max_bounces,
         area_light_samples=ctx.area_light_samples,
+        render_mode=ctx.render_mode,
+        background_mode=ctx.background_mode,
         cam_ox=_f32(cf.origin[0]),
         cam_oy=_f32(cf.origin[1]),
         cam_oz=_f32(cf.origin[2]),
@@ -69,13 +82,22 @@ def to_device(ctx: RenderContext) -> DeviceRenderContext:
         cam_vx=_f32(cf.vertical[0]),
         cam_vy=_f32(cf.vertical[1]),
         cam_vz=_f32(cf.vertical[2]),
+        cam_lens_ux=_f32(cf.lens_u[0]),
+        cam_lens_uy=_f32(cf.lens_u[1]),
+        cam_lens_uz=_f32(cf.lens_u[2]),
+        cam_lens_vx=_f32(cf.lens_v[0]),
+        cam_lens_vy=_f32(cf.lens_v[1]),
+        cam_lens_vz=_f32(cf.lens_v[2]),
+        cam_aperture=_f32(cf.aperture),
         inv_width=_f32(cf.inv_width),
         inv_height=_f32(cf.inv_height),
         spheres=_device_f32(ctx.spheres),
         planes=_device_f32(ctx.planes),
+        triangles=_device_f32(ctx.triangles),
         bvh_nodes=_device_f32(ctx.bvh_nodes),
         bvh_prims=_device_f32(ctx.bvh_prims),
         materials=_device_f32(ctx.materials),
         lights=_device_f32(ctx.lights),
         background=_device_f32(ctx.background),
+        environment=_device_f32(ctx.environment),
     )

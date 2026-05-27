@@ -68,14 +68,14 @@ def main() -> None:
         )
         ctx = build_render_context(scene)
         assert ctx.environment.shape == (1, 2, 3)
-        assert not ctx.gpu_supported
-        assert "environment background mode" in ctx.gpu_fallback_reason
+        assert ctx.gpu_supported
+        assert ctx.gpu_fallback_reason == ""
         image = render(scene, use_gpu=False, parallel=False)
         assert image.shape == (2, 4, 3)
         assert np.isfinite(image).all()
         assert float(image.max()) > 0.5
 
-    print("Environment OK: LDR, HDR RGBE, missing-file fallback, and CPU sky sampling verified")
+    print("Environment OK: LDR, HDR RGBE, missing-file fallback, and sky sampling verified")
 
 
 if __name__ == "__main__":
